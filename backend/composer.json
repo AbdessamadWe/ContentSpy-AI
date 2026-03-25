@@ -1,0 +1,85 @@
+{
+    "name": "contentspy/api",
+    "description": "ContentSpy AI — SaaS Competitive Intelligence & Automated Content Platform",
+    "keywords": ["laravel", "saas", "content", "ai"],
+    "license": "proprietary",
+    "require": {
+        "php": "^8.3",
+        "ext-pdo": "*",
+        "ext-mbstring": "*",
+        "ext-xml": "*",
+        "ext-bcmath": "*",
+        "ext-json": "*",
+        "ext-openssl": "*",
+        "laravel/framework": "^11.0",
+        "laravel/sanctum": "^4.0",
+        "laravel/horizon": "^5.28",
+        "laravel/scout": "^10.10",
+        "mongodb/laravel-mongodb": "^4.4",
+        "meilisearch/meilisearch-php": "^1.8",
+        "http-interop/http-factory-guzzle": "^1.2",
+        "stripe/stripe-php": "^15.0",
+        "sentry/sentry-laravel": "^4.9",
+        "resend/resend-laravel": "^0.14",
+        "predis/predis": "^2.3",
+        "league/flysystem-aws-s3-v3": "^3.28",
+        "laravel/socialite": "^5.16",
+        "socialiteproviders/google": "^4.1",
+        "guzzlehttp/guzzle": "^7.9",
+        "openai-php/laravel": "^0.10"
+    },
+    "require-dev": {
+        "laravel/telescope": "^5.2",
+        "laravel/pint": "^1.18",
+        "fakerphp/faker": "^1.23",
+        "phpunit/phpunit": "^11.0",
+        "laravel/sail": "^1.36"
+    },
+    "autoload": {
+        "psr-4": {
+            "App\\": "app/",
+            "Database\\Factories\\": "database/factories/",
+            "Database\\Seeders\\": "database/seeders/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Tests\\": "tests/"
+        }
+    },
+    "scripts": {
+        "post-autoload-dump": [
+            "Illuminate\\Foundation\\ComposerScripts::postAutoloadDump",
+            "@php artisan package:discover --ansi"
+        ],
+        "post-update-cmd": [
+            "@php artisan vendor:publish --tag=laravel-assets --ansi --force"
+        ],
+        "post-root-package-install": [
+            "@php -r \"file_exists('.env') || copy('.env.example', '.env');\""
+        ],
+        "post-create-project-cmd": [
+            "@php artisan key:generate --ansi",
+            "@php -r \"file_exists('database/database.sqlite') || touch('database/database.sqlite');\"",
+            "@php artisan migrate --graceful --ansi"
+        ]
+    },
+    "extra": {
+        "laravel": {
+            "dont-discover": [
+                "laravel/telescope"
+            ]
+        }
+    },
+    "config": {
+        "optimize-autoloader": true,
+        "preferred-install": "dist",
+        "sort-packages": true,
+        "allow-plugins": {
+            "pestphp/pest-plugin": true,
+            "php-http/discovery": true
+        }
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}

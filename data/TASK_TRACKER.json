@@ -3,7 +3,7 @@
     "project": "ContentSpy AI — SaaS Competitive Intelligence & Automated Content Platform",
     "version": "1.0.0",
     "created_at": "2026-03-24",
-    "last_updated": "2026-03-24",
+    "last_updated": "2026-03-25",
     "context_file": "PROJECT_CONTEXT.md",
     "architect_notes": "This is a complex multi-tenant SaaS with 5 major subsystems: (1) spy engine with 7 methods, (2) AI content generation with multi-provider token tracking, (3) multi-platform publishing including a custom WordPress plugin, (4) social media distribution, (5) credit/billing engine. The build order is strictly: infrastructure → auth → credits → spy → content → publishing → plugin → social → analytics. The WordPress plugin is a parallel deliverable that must be treated as a standalone product. Token cost tracking is non-negotiable and must be wired into every AI call from day one.",
     "main_risks": [
@@ -62,13 +62,13 @@
       "name": "Project Initialization & Infrastructure",
       "description": "Laravel project setup, Docker environment, base configuration, all third-party service connections verified",
       "order": 1,
-      "status": "todo",
+      "status": "done",
       "tasks": [
         {
           "id": "P1-T1",
           "title": "Initialize Laravel 11 project with Docker environment",
           "description": "Create the Laravel 11 project and define the full Docker Compose stack including PHP, MySQL, MongoDB, Redis, Meilisearch, Soketi. This is the foundation everything runs on.",
-          "status": "todo",
+          "status": "done",
           "priority": "critical",
           "depends_on": [],
           "files_to_create": [
@@ -97,7 +97,7 @@
           "id": "P1-T2",
           "title": "Configure environment variables and service connections",
           "description": "Set up all .env variables for every external service. Verify each connection works before proceeding. This task must not be marked done until every service ping succeeds.",
-          "status": "todo",
+          "status": "done",
           "priority": "critical",
           "depends_on": ["P1-T1"],
           "files_to_modify": [".env", ".env.example"],
@@ -140,7 +140,7 @@
           "id": "P1-T3",
           "title": "Install and configure all Laravel packages",
           "description": "Install Sanctum, Horizon, Telescope, MongoDB driver, Meilisearch Scout driver, Stripe SDK, Sentry, Resend, and all other required packages.",
-          "status": "todo",
+          "status": "done",
           "priority": "critical",
           "depends_on": ["P1-T2"],
           "commands": [
@@ -174,7 +174,7 @@
           "id": "P1-T4",
           "title": "Create global configuration files",
           "description": "Create all custom config files: contentspy.php (platform settings), ai-models.php (model pricing table), credits.php (credit costs per action), platforms.php (social platform rate limits).",
-          "status": "todo",
+          "status": "done",
           "priority": "critical",
           "depends_on": ["P1-T3"],
           "files_to_create": [
@@ -196,7 +196,7 @@
           "id": "P1-T5",
           "title": "Initialize Playwright Node.js microservice",
           "description": "Build the Playwright scraping microservice as a standalone Express.js app running in Docker. It exposes HTTP endpoints called by Laravel for all headless browser tasks.",
-          "status": "todo",
+          "status": "done",
           "priority": "critical",
           "depends_on": ["P1-T1"],
           "files_to_create": [
@@ -220,7 +220,7 @@
           "id": "P1-T6",
           "title": "Initialize FFmpeg Node.js microservice",
           "description": "Build the FFmpeg video assembly microservice as a standalone Express.js app. Receives image URLs + audio URL, assembles MP4 video for TikTok/Instagram Reels.",
-          "status": "todo",
+          "status": "done",
           "priority": "high",
           "depends_on": ["P1-T1"],
           "files_to_create": [
@@ -247,13 +247,13 @@
       "name": "Database — Migrations",
       "description": "All MySQL and MongoDB schema definitions. Every table created in strict dependency order. No models until all migrations are done.",
       "order": 2,
-      "status": "todo",
+      "status": "done",
       "tasks": [
         {
           "id": "P2-T1",
           "title": "Migrate users table with workspace and plan fields",
           "description": "Modify the default Laravel users migration to add: plan, role, is_active, google_id, avatar, timezone, locale.",
-          "status": "todo",
+          "status": "done",
           "priority": "critical",
           "depends_on": ["P1-T3"],
           "files_to_modify": ["database/migrations/0001_01_01_000000_create_users_table.php"],
@@ -278,7 +278,7 @@
           "id": "P2-T2",
           "title": "Create workspaces migration",
           "description": "Workspaces are the multi-tenant unit. Every resource belongs to a workspace. One user can own multiple workspaces (agency use case).",
-          "status": "todo",
+          "status": "done",
           "priority": "critical",
           "depends_on": ["P2-T1"],
           "files_to_create": ["database/migrations/xxxx_create_workspaces_table.php"],
@@ -298,7 +298,7 @@
           "id": "P2-T3",
           "title": "Create workspace_users pivot migration",
           "description": "Many-to-many between users and workspaces with role. A user can belong to multiple workspaces with different roles.",
-          "status": "todo",
+          "status": "done",
           "priority": "critical",
           "depends_on": ["P2-T2"],
           "files_to_create": ["database/migrations/xxxx_create_workspace_users_table.php"],
@@ -317,7 +317,7 @@
           "id": "P2-T4",
           "title": "Create credit_transactions migration",
           "description": "Immutable ledger of every credit debit and credit. This is the source of truth for credit balance — balance is always derived from this table.",
-          "status": "todo",
+          "status": "done",
           "priority": "critical",
           "depends_on": ["P2-T2"],
           "files_to_create": ["database/migrations/xxxx_create_credit_transactions_table.php"],
@@ -337,7 +337,7 @@
           "id": "P2-T5",
           "title": "Create token_usage_logs migration",
           "description": "Every AI API call records tokens consumed and cost in USD. This table is the foundation for margin analysis and billing transparency.",
-          "status": "todo",
+          "status": "done",
           "priority": "critical",
           "depends_on": ["P2-T2"],
           "files_to_create": ["database/migrations/xxxx_create_token_usage_logs_table.php"],
@@ -357,7 +357,7 @@
           "id": "P2-T6",
           "title": "Create sites migration",
           "description": "WordPress sites managed by the user. Each site is the central entity that connects competitors, content, publishing, and social accounts.",
-          "status": "todo",
+          "status": "done",
           "priority": "critical",
           "depends_on": ["P2-T2"],
           "files_to_create": ["database/migrations/xxxx_create_sites_table.php"],
@@ -377,7 +377,7 @@
           "id": "P2-T7",
           "title": "Create competitors migration",
           "description": "Competitors tracked per site. One competitor can be monitored via multiple spy methods simultaneously.",
-          "status": "todo",
+          "status": "done",
           "priority": "critical",
           "depends_on": ["P2-T6"],
           "files_to_create": ["database/migrations/xxxx_create_competitors_table.php"],
@@ -397,7 +397,7 @@
           "id": "P2-T8",
           "title": "Create spy_detections migration",
           "description": "Every article detected from every competitor via any spy method. Deduplication happens here via content_hash.",
-          "status": "todo",
+          "status": "done",
           "priority": "critical",
           "depends_on": ["P2-T7"],
           "files_to_create": ["database/migrations/xxxx_create_spy_detections_table.php"],
@@ -417,7 +417,7 @@
           "id": "P2-T9",
           "title": "Create content_suggestions migration",
           "description": "Content opportunity cards generated from spy detections. Each card contains the AI-generated brief for article creation.",
-          "status": "todo",
+          "status": "done",
           "priority": "critical",
           "depends_on": ["P2-T8"],
           "files_to_create": ["database/migrations/xxxx_create_content_suggestions_table.php"],
@@ -437,7 +437,7 @@
           "id": "P2-T10",
           "title": "Create articles migration",
           "description": "Generated articles with all content, SEO metadata, generation metadata, and publishing status.",
-          "status": "todo",
+          "status": "done",
           "priority": "critical",
           "depends_on": ["P2-T9"],
           "files_to_create": ["database/migrations/xxxx_create_articles_table.php"],
@@ -457,7 +457,7 @@
           "id": "P2-T11",
           "title": "Create social_accounts and social_posts migrations",
           "description": "Social media accounts connected per site, and posts published or scheduled per article per platform.",
-          "status": "todo",
+          "status": "done",
           "priority": "critical",
           "depends_on": ["P2-T6"],
           "files_to_create": [
@@ -480,7 +480,7 @@
           "id": "P2-T12",
           "title": "Create workflow_logs and spy_job_logs migrations",
           "description": "Audit logs for workflow execution per site and for every spy scan job. These are the debug and compliance records.",
-          "status": "todo",
+          "status": "done",
           "priority": "high",
           "depends_on": ["P2-T7"],
           "files_to_create": [
@@ -503,7 +503,7 @@
           "id": "P2-T13",
           "title": "Create notifications and webhook_endpoints migrations",
           "description": "In-app notifications store and user-configured webhook endpoints for event delivery.",
-          "status": "todo",
+          "status": "done",
           "priority": "medium",
           "depends_on": ["P2-T2"],
           "files_to_create": [
@@ -530,13 +530,13 @@
       "name": "Database — Models & Relations",
       "description": "All Eloquent models with relations, casts, scopes, and encrypted attributes. MongoDB models for spy snapshots.",
       "order": 3,
-      "status": "todo",
+      "status": "done",
       "tasks": [
         {
           "id": "P3-T1",
           "title": "Create User and Workspace models with relations",
           "description": "User belongs to many Workspaces. Workspace has one owner (User). Setup all fillable, casts, hidden, and relations.",
-          "status": "todo",
+          "status": "done",
           "priority": "critical",
           "depends_on": ["P2-T3"],
           "files_to_create": ["app/Models/Workspace.php"],
@@ -554,7 +554,7 @@
           "id": "P3-T2",
           "title": "Create Site, Competitor, and SpyDetection models",
           "description": "Core spy engine models. Site has many Competitors. Competitor has many SpyDetections. SpyDetection deduplicates via content_hash.",
-          "status": "todo",
+          "status": "done",
           "priority": "critical",
           "depends_on": ["P2-T8", "P3-T1"],
           "files_to_create": [
@@ -575,7 +575,7 @@
           "id": "P3-T3",
           "title": "Create Article, ContentSuggestion models with pipeline state machine",
           "description": "Article model manages the 8-step generation pipeline state. ContentSuggestion manages the opportunity card lifecycle.",
-          "status": "todo",
+          "status": "done",
           "priority": "critical",
           "depends_on": ["P2-T10", "P3-T2"],
           "files_to_create": [
@@ -596,7 +596,7 @@
           "id": "P3-T4",
           "title": "Create CreditTransaction, TokenUsageLog models",
           "description": "Financial models. CreditTransaction is append-only. TokenUsageLog records every AI API call. Both provide aggregate methods for dashboards.",
-          "status": "todo",
+          "status": "done",
           "priority": "critical",
           "depends_on": ["P2-T5", "P3-T1"],
           "files_to_create": [
@@ -616,7 +616,7 @@
           "id": "P3-T5",
           "title": "Create SocialAccount, SocialPost models",
           "description": "Social media integration models. SocialAccount stores encrypted OAuth tokens with refresh logic. SocialPost tracks per-platform publishing state.",
-          "status": "todo",
+          "status": "done",
           "priority": "critical",
           "depends_on": ["P2-T11", "P3-T2"],
           "files_to_create": [
@@ -637,7 +637,7 @@
           "id": "P3-T6",
           "title": "Create MongoDB models for spy snapshots",
           "description": "MongoDB Eloquent models for raw spy data: RssSnapshot, SitemapSnapshot, HtmlSnapshot. These store raw data before processing.",
-          "status": "todo",
+          "status": "done",
           "priority": "high",
           "depends_on": ["P1-T3", "P2-T7"],
           "files_to_create": [
@@ -662,13 +662,13 @@
       "name": "Authentication, Authorization & Security",
       "description": "Full auth stack: registration, login, Google OAuth, workspace switching, role-based authorization, API key management.",
       "order": 4,
-      "status": "todo",
+      "status": "done",
       "tasks": [
         {
           "id": "P4-T1",
           "title": "Implement registration, login, logout API endpoints",
           "description": "Standard email/password auth via Sanctum SPA. Registration creates user + default workspace in one transaction.",
-          "status": "todo",
+          "status": "done",
           "priority": "critical",
           "depends_on": ["P3-T1"],
           "files_to_create": [
@@ -692,7 +692,7 @@
           "id": "P4-T2",
           "title": "Implement Google OAuth login",
           "description": "Google social login via Laravel Socialite. Creates account if new user, links to existing if email matches.",
-          "status": "todo",
+          "status": "done",
           "priority": "high",
           "depends_on": ["P4-T1"],
           "files_to_create": ["app/Http/Controllers/Auth/GoogleController.php"],
@@ -710,7 +710,7 @@
           "id": "P4-T3",
           "title": "Implement workspace authorization (roles and permissions)",
           "description": "Define all permissions per role. Implement Laravel Gates and Policies for every protected resource.",
-          "status": "todo",
+          "status": "done",
           "priority": "critical",
           "depends_on": ["P3-T1"],
           "files_to_create": [
@@ -736,7 +736,7 @@
           "id": "P4-T4",
           "title": "Implement credit reservation and atomic deduction service",
           "description": "CreditService handles all credit operations. Reservation (lock credits before job starts), confirm (deduct on success), refund (release on failure). Race-condition safe.",
-          "status": "todo",
+          "status": "done",
           "priority": "critical",
           "depends_on": ["P3-T4"],
           "files_to_create": ["app/Services/CreditService.php"],
@@ -755,7 +755,7 @@
           "id": "P4-T5",
           "title": "Implement plan limit enforcement middleware",
           "description": "Middleware that enforces plan limits: max sites, max competitors, max posts per day, max social platforms. Checked at job creation time.",
-          "status": "todo",
+          "status": "done",
           "priority": "critical",
           "depends_on": ["P4-T3"],
           "files_to_create": ["app/Http/Middleware/EnforcePlanLimits.php"],
@@ -778,13 +778,13 @@
       "name": "AI Provider Integration & Token Tracking",
       "description": "All AI provider clients with token tracking wired in. Every AI call goes through the AiGateway which records usage automatically.",
       "order": 5,
-      "status": "todo",
+      "status": "done",
       "tasks": [
         {
           "id": "P5-T1",
           "title": "Build AiGateway — central AI dispatch service",
           "description": "Single entry point for all AI text generation. Handles provider selection, fallback chain, token recording, and cost calculation. No direct provider calls outside this service.",
-          "status": "todo",
+          "status": "done",
           "priority": "critical",
           "depends_on": ["P3-T4", "P4-T4"],
           "files_to_create": [
@@ -812,7 +812,7 @@
           "id": "P5-T2",
           "title": "Build ImageGenerationGateway with provider fallback",
           "description": "Central image generation service. Handles DALL-E 3, Stable Diffusion (Replicate), and Midjourney (Discord bot). All image costs logged.",
-          "status": "todo",
+          "status": "done",
           "priority": "critical",
           "depends_on": ["P5-T1"],
           "files_to_create": [
@@ -836,7 +836,7 @@
           "id": "P5-T3",
           "title": "Build TTS and video script generation services",
           "description": "Text-to-speech via ElevenLabs/OpenAI TTS. Video script generation from article content. Both feed into FFmpeg microservice for TikTok/Reels.",
-          "status": "todo",
+          "status": "done",
           "priority": "high",
           "depends_on": ["P5-T1"],
           "files_to_create": [
@@ -861,13 +861,13 @@
       "name": "Spy Engine — All 7 Methods",
       "description": "All 7 competitor spy methods as independent services. Each callable independently and via the orchestrator. All consume credits and log to spy_job_logs.",
       "order": 6,
-      "status": "todo",
+      "status": "in_progress",
       "tasks": [
         {
           "id": "P6-T1",
           "title": "Build SpyOrchestrator and base SpyMethod contract",
           "description": "SpyOrchestrator coordinates which methods to run for a competitor. All spy methods implement SpyMethodInterface. Deduplication via content_hash enforced here.",
-          "status": "todo",
+          "status": "done",
           "priority": "critical",
           "depends_on": ["P5-T1", "P4-T4", "P3-T2"],
           "files_to_create": [
@@ -891,7 +891,7 @@
           "id": "P6-T2",
           "title": "Implement RSS feed spy method",
           "description": "Parse RSS/Atom feeds, compare with last snapshot in MongoDB, extract new articles, score them.",
-          "status": "todo",
+          "status": "in_progress",
           "priority": "critical",
           "depends_on": ["P6-T1"],
           "files_to_create": ["app/Services/Spy/Methods/RssSpyMethod.php"],
@@ -910,7 +910,7 @@
           "id": "P6-T3",
           "title": "Implement HTML scraping spy method via Playwright microservice",
           "description": "Call Playwright microservice to scrape competitor blog index, extract article links, compare with previous HTML snapshot.",
-          "status": "todo",
+          "status": "in_progress",
           "priority": "critical",
           "depends_on": ["P6-T1", "P1-T5"],
           "files_to_create": ["app/Services/Spy/Methods/HtmlScrapingSpyMethod.php"],
@@ -929,7 +929,7 @@
           "id": "P6-T4",
           "title": "Implement sitemap, Google News, and social signal spy methods",
           "description": "Three additional spy methods: sitemap XML parsing, Google News RSS monitoring, and social signal tracking via platform APIs.",
-          "status": "todo",
+          "status": "in_progress",
           "priority": "high",
           "depends_on": ["P6-T1"],
           "files_to_create": [
@@ -951,7 +951,7 @@
           "id": "P6-T5",
           "title": "Implement keyword gap and SERP monitoring spy methods",
           "description": "Two SEO-focused spy methods using third-party APIs: SEMrush/Ahrefs for keyword gaps, SERP API for rank tracking.",
-          "status": "todo",
+          "status": "in_progress",
           "priority": "medium",
           "depends_on": ["P6-T1"],
           "files_to_create": [
@@ -971,7 +971,7 @@
           "id": "P6-T6",
           "title": "Build auto-spy scheduler and queue jobs",
           "description": "Laravel scheduled commands that trigger auto-spy for all competitors with auto_spy=true on their configured intervals. Dispatches jobs to Horizon queues.",
-          "status": "todo",
+          "status": "done",
           "priority": "critical",
           "depends_on": ["P6-T1"],
           "files_to_create": [
@@ -998,13 +998,13 @@
       "name": "Content Generation Pipeline",
       "description": "8-step async content generation pipeline. Each step is a separate job. Article model tracks state. All AI calls go through AiGateway.",
       "order": 7,
-      "status": "todo",
+      "status": "done",
       "tasks": [
         {
           "id": "P7-T1",
           "title": "Build ContentPipelineOrchestrator and step jobs",
           "description": "Orchestrates the 8-step pipeline. Each step dispatches the next step on success. Failed step marks article as failed and refunds credits.",
-          "status": "todo",
+          "status": "done",
           "priority": "critical",
           "depends_on": ["P5-T1", "P4-T4", "P3-T3"],
           "files_to_create": [
@@ -1031,7 +1031,7 @@
           "id": "P7-T2",
           "title": "Implement outline generation step",
           "description": "Generate H2/H3 article structure from suggestion brief. Uses AiGateway. Stores outline JSON on article before body generation.",
-          "status": "todo",
+          "status": "done",
           "priority": "critical",
           "depends_on": ["P7-T1"],
           "files_to_create": ["app/Services/Content/Steps/OutlineGeneratorService.php"],
@@ -1049,7 +1049,7 @@
           "id": "P7-T3",
           "title": "Implement chunked article body generation",
           "description": "Generate article body section by section. Each H2 section is a separate AiGateway call to avoid timeouts on long articles.",
-          "status": "todo",
+          "status": "done",
           "priority": "critical",
           "depends_on": ["P7-T2"],
           "files_to_create": ["app/Services/Content/Steps/ArticleBodyGeneratorService.php"],
@@ -1068,7 +1068,7 @@
           "id": "P7-T4",
           "title": "Implement SEO optimization, duplicate check, and formatting steps",
           "description": "Three final content steps: SEO meta generation, duplicate content check via Meilisearch, and WordPress Gutenberg block formatting.",
-          "status": "todo",
+          "status": "done",
           "priority": "critical",
           "depends_on": ["P7-T3"],
           "files_to_create": [
@@ -1091,7 +1091,7 @@
           "id": "P7-T5",
           "title": "Build content suggestion generation from spy detections",
           "description": "Service that turns SpyDetection records into ContentSuggestion cards. Called after every spy run that finds new detections.",
-          "status": "todo",
+          "status": "done",
           "priority": "critical",
           "depends_on": ["P5-T1", "P3-T3"],
           "files_to_create": [
@@ -1117,13 +1117,13 @@
       "name": "WordPress Publishing — REST API & Plugin Bridge",
       "description": "WordPress publishing via REST API direct connection and via the ContentSpy Connect plugin. Plugin is a standalone PHP deliverable.",
       "order": 8,
-      "status": "todo",
+      "status": "done",
       "tasks": [
         {
           "id": "P8-T1",
           "title": "Build WordPressPublisher service",
           "description": "Publishes articles to WordPress via REST API or plugin endpoint. Handles both connection types transparently.",
-          "status": "todo",
+          "status": "done",
           "priority": "critical",
           "depends_on": ["P3-T3", "P4-T4"],
           "files_to_create": [
@@ -1147,7 +1147,7 @@
           "id": "P8-T2",
           "title": "Build ContentSpy Connect WordPress plugin — core",
           "description": "The WordPress plugin that connects a WP installation to ContentSpy SaaS. Core: settings page, API key verification, HMAC authentication.",
-          "status": "todo",
+          "status": "done",
           "priority": "critical",
           "depends_on": ["P8-T1"],
           "files_to_create": [
@@ -1174,7 +1174,7 @@
           "id": "P8-T3",
           "title": "Build WordPress plugin — custom REST endpoints",
           "description": "All /wp-json/contentspy/v1/ endpoints: publish, status, posts, sync, delete. Each endpoint HMAC-verified.",
-          "status": "todo",
+          "status": "done",
           "priority": "critical",
           "depends_on": ["P8-T2"],
           "files_to_create": [
@@ -1197,7 +1197,7 @@
           "id": "P8-T4",
           "title": "Build WordPress plugin — admin widget and auto-update",
           "description": "WP admin dashboard widget showing pending ContentSpy articles. Plugin auto-update mechanism via SaaS API.",
-          "status": "todo",
+          "status": "done",
           "priority": "medium",
           "depends_on": ["P8-T3"],
           "files_to_create": [
@@ -1220,7 +1220,7 @@
           "id": "P8-T5",
           "title": "Build plugin distribution and SaaS plugin management endpoints",
           "description": "SaaS-side endpoints for plugin: verify connection, serve plugin zip, handle sync webhooks from plugin. Plugin download from SaaS dashboard.",
-          "status": "todo",
+          "status": "done",
           "priority": "high",
           "depends_on": ["P8-T2"],
           "files_to_create": [
@@ -1242,7 +1242,7 @@
           "id": "P8-T6",
           "title": "Build publishing queue with rate limiting and retry logic",
           "description": "Publishing queue enforces max posts per day per site. Failed publishes retry 3 times with exponential backoff.",
-          "status": "todo",
+          "status": "done",
           "priority": "high",
           "depends_on": ["P8-T1"],
           "files_to_create": [
@@ -1267,13 +1267,13 @@
       "name": "Social Media Publishing",
       "description": "OAuth connections, content adapters, and publishing for Facebook, Instagram, TikTok, Pinterest. Video pipeline for Reels/TikTok.",
       "order": 9,
-      "status": "todo",
+      "status": "in_progress",
       "tasks": [
         {
           "id": "P9-T1",
           "title": "Build OAuth connection flows for all 4 social platforms",
           "description": "OAuth2 flow for Facebook/Instagram (Graph API), TikTok (Content API), Pinterest (API v5). Stores and refreshes tokens.",
-          "status": "todo",
+          "status": "in_progress",
           "priority": "critical",
           "depends_on": ["P3-T5", "P4-T3"],
           "files_to_create": [
@@ -1323,7 +1323,7 @@
           "id": "P9-T3",
           "title": "Build social publishing jobs for all 4 platforms",
           "description": "Platform-specific publishing jobs that call Graph API, TikTok API, Pinterest API. Retry logic, rate limit enforcement, credit refund on failure.",
-          "status": "todo",
+          "status": "done",
           "priority": "critical",
           "depends_on": ["P9-T2"],
           "files_to_create": [
@@ -1378,7 +1378,7 @@
       "name": "API Layer — Controllers, Routes, Resources",
       "description": "All REST API endpoints. Every controller is thin — delegates to services. All responses via API Resources. Rate limiting per plan.",
       "order": 10,
-      "status": "todo",
+      "status": "in_progress",
       "tasks": [
         {
           "id": "P10-T1",
@@ -1457,7 +1457,7 @@
           "id": "P10-T4",
           "title": "Build credits, billing, and Stripe webhook API",
           "description": "Credit balance, transaction history, Stripe subscription management, credit pack purchases, Stripe webhook handler.",
-          "status": "todo",
+          "status": "done",
           "priority": "critical",
           "depends_on": ["P4-T4"],
           "files_to_create": [
@@ -1508,13 +1508,13 @@
       "name": "Workflow Engine & Automation",
       "description": "Per-site configurable workflow. Conditional logic, templates, audit logging. The brain that connects spy → suggest → generate → publish → distribute.",
       "order": 11,
-      "status": "todo",
+      "status": "in_progress",
       "tasks": [
         {
           "id": "P11-T1",
           "title": "Build WorkflowEngine with step handlers and conditional logic",
           "description": "The workflow engine evaluates conditions and decides which steps to execute automatically vs which to pause for human review.",
-          "status": "todo",
+          "status": "done",
           "priority": "critical",
           "depends_on": ["P7-T1", "P8-T1", "P9-T2"],
           "files_to_create": [
@@ -1542,7 +1542,7 @@
           "id": "P11-T2",
           "title": "Build notification dispatch system (in-app, email, Slack, webhooks)",
           "description": "Unified notification system. Every important event fires the correct notification to the correct channels.",
-          "status": "todo",
+          "status": "done",
           "priority": "high",
           "depends_on": ["P10-T5"],
           "files_to_create": [
@@ -1575,13 +1575,13 @@
       "name": "Frontend — React Application",
       "description": "Full React 18 SPA with all dashboard views, spy management, content pipeline, publishing calendar, and analytics.",
       "order": 12,
-      "status": "todo",
+      "status": "in_progress",
       "tasks": [
         {
           "id": "P12-T1",
           "title": "Initialize React app with routing, auth, and global state",
           "description": "Vite + React 18 + TailwindCSS + shadcn/ui setup. Auth flow, workspace switching, protected routes, TanStack Query global config.",
-          "status": "todo",
+          "status": "done",
           "priority": "critical",
           "depends_on": ["P10-T1"],
           "files_to_create": [
