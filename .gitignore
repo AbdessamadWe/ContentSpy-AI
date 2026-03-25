@@ -1,0 +1,26 @@
+# Env
+.env
+
+# Vendor
+vendor/
+node_modules/
+
+# Build
+frontend/dist/
+backend/public/hot
+backend/public/storage
+backend/storage/app/public
+backend/storage/framework/
+backend/storage/logs/
+*.log
+
+# Data (replace manually)
+data/full_kson_tracker.json
+data/full_prompt.txt
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker volumes
+*.sqlite

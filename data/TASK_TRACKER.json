@@ -1,0 +1,1965 @@
+{
+  "_meta": {
+    "project": "ContentSpy AI — SaaS Competitive Intelligence & Automated Content Platform",
+    "version": "1.0.0",
+    "created_at": "2026-03-24",
+    "last_updated": "2026-03-24",
+    "context_file": "PROJECT_CONTEXT.md",
+    "architect_notes": "This is a complex multi-tenant SaaS with 5 major subsystems: (1) spy engine with 7 methods, (2) AI content generation with multi-provider token tracking, (3) multi-platform publishing including a custom WordPress plugin, (4) social media distribution, (5) credit/billing engine. The build order is strictly: infrastructure → auth → credits → spy → content → publishing → plugin → social → analytics. The WordPress plugin is a parallel deliverable that must be treated as a standalone product. Token cost tracking is non-negotiable and must be wired into every AI call from day one.",
+    "main_risks": [
+      "Credit race conditions under concurrent jobs — must use Redis atomic DECR with floor check from P4 onward",
+      "Multi-tenant data isolation — ALL queries must scope by workspace_id, missing scope = data leak",
+      "Playwright at scale — memory leaks, proxy rotation, anti-bot detection — needs circuit breaker",
+      "Midjourney has no official API — Discord bot automation brittle — must have DALL-E/SD fallback wired from start",
+      "TikTok Content Posting API — requires approved app, file pre-upload, strict codec (H.264) — plan for 2-week API review delay",
+      "Long article generation (>3000 words) must be fully async chunked — never synchronous",
+      "OpenRouter pricing is volatile — never hardcode model costs, always fetch live from /models endpoint"
+    ],
+    "stack": {
+      "backend": "Laravel 11, PHP 8.3",
+      "queue": "Laravel Horizon + Redis",
+      "database_primary": "MySQL 8",
+      "database_secondary": "MongoDB (spy snapshots, audit logs)",
+      "cache": "Redis",
+      "search": "Meilisearch",
+      "scraping": "Playwright Node.js microservice (Docker)",
+      "video": "FFmpeg Node.js microservice (Docker)",
+      "frontend": "React 18 + Vite + TailwindCSS + shadcn/ui",
+      "auth": "Laravel Sanctum + Google OAuth",
+      "payments": "Stripe (subscriptions + credit packs)",
+      "storage": "Cloudflare R2 (S3-compatible)",
+      "email": "Resend",
+      "realtime": "Laravel Echo + Soketi",
+      "monitoring": "Sentry + Laravel Telescope",
+      "deployment": "Docker + Laravel Forge or Coolify",
+      "wordpress_plugin": "Pure PHP, no composer deps, custom REST endpoints"
+    },
+    "status_values": ["todo", "in_progress", "done", "blocked", "skipped"],
+    "priority_values": ["critical", "high", "medium", "low"],
+    "complexity_values": ["xs", "s", "m", "l", "xl"],
+    "rules_for_ai": [
+      "ALWAYS read PROJECT_CONTEXT.md before coding",
+      "ALWAYS check depends_on before starting any task",
+      "ALWAYS update task status when done",
+      "NEVER skip a task without marking skipped with a reason in notes",
+      "NEVER modify existing code without checking all linked tasks",
+      "ALWAYS respect the file structure defined in PROJECT_CONTEXT.md",
+      "ALWAYS verify every acceptance_criteria before marking a task done",
+      "If a task fails, mark it blocked with the reason in technical_notes",
+      "NEVER merge two responsibilities into one task",
+      "NEVER start a new phase if the previous phase has blocked tasks",
+      "NEVER hardcode API keys, model prices, or platform limits — use config",
+      "ALWAYS scope database queries by workspace_id — no exceptions",
+      "ALWAYS wrap credit operations in atomic transactions or Redis DECR",
+      "ALWAYS record token usage (model, prompt_tokens, completion_tokens, cost_usd) for every AI call"
+    ]
+  },
+
+  "phases": [
+
+    {
+      "id": "P1",
+      "name": "Project Initialization & Infrastructure",
+      "description": "Laravel project setup, Docker environment, base configuration, all third-party service connections verified",
+      "order": 1,
+      "status": "todo",
+      "tasks": [
+        {
+          "id": "P1-T1",
+          "title": "Initialize Laravel 11 project with Docker environment",
+          "description": "Create the Laravel 11 project and define the full Docker Compose stack including PHP, MySQL, MongoDB, Redis, Meilisearch, Soketi. This is the foundation everything runs on.",
+          "status": "todo",
+          "priority": "critical",
+          "depends_on": [],
+          "files_to_create": [
+            "docker-compose.yml",
+            "docker/php/Dockerfile",
+            "docker/nginx/default.conf",
+            ".env.example"
+          ],
+          "commands": [
+            "composer create-project laravel/laravel contentspy-ai",
+            "cd contentspy-ai",
+            "docker-compose up -d"
+          ],
+          "acceptance_criteria": [
+            "docker-compose up starts all services without error",
+            "php artisan serve responds on configured port",
+            "MySQL 8 container is reachable",
+            "Redis container is reachable (redis-cli ping returns PONG)",
+            "MongoDB container is reachable",
+            "Meilisearch container is reachable on port 7700"
+          ],
+          "technical_notes": "Use Docker Compose profiles: core (PHP, MySQL, Redis, Nginx) and full (adds MongoDB, Meilisearch, Soketi, Playwright, FFmpeg microservices). Playwright and FFmpeg run as separate Node.js containers.",
+          "estimated_complexity": "m"
+        },
+        {
+          "id": "P1-T2",
+          "title": "Configure environment variables and service connections",
+          "description": "Set up all .env variables for every external service. Verify each connection works before proceeding. This task must not be marked done until every service ping succeeds.",
+          "status": "todo",
+          "priority": "critical",
+          "depends_on": ["P1-T1"],
+          "files_to_modify": [".env", ".env.example"],
+          "key_values": {
+            "DB_CONNECTION": "mysql",
+            "DB_DATABASE": "contentspy",
+            "QUEUE_CONNECTION": "redis",
+            "REDIS_HOST": "redis",
+            "SESSION_DRIVER": "database",
+            "MONGODB_URI": "mongodb://mongo:27017/contentspy_spy",
+            "MEILISEARCH_HOST": "http://meilisearch:7700",
+            "SOKETI_HOST": "soketi",
+            "R2_BUCKET": "",
+            "R2_ENDPOINT": "",
+            "STRIPE_KEY": "",
+            "STRIPE_SECRET": "",
+            "OPENAI_API_KEY": "",
+            "ANTHROPIC_API_KEY": "",
+            "OPENROUTER_API_KEY": "",
+            "REPLICATE_API_KEY": "",
+            "ELEVENLABS_API_KEY": "",
+            "RESEND_API_KEY": "",
+            "SENTRY_DSN": "",
+            "PLAYWRIGHT_SERVICE_URL": "http://playwright:3001",
+            "FFMPEG_SERVICE_URL": "http://ffmpeg:3002"
+          },
+          "acceptance_criteria": [
+            "php artisan db:show returns MySQL connection success",
+            "Redis PING returns PONG via Laravel Cache",
+            "MongoDB connection test returns OK",
+            "Meilisearch health endpoint returns 200",
+            "R2 bucket connection verified via Storage::put test file",
+            "Stripe API key validated via stripe.com ping",
+            "Resend API key validated"
+          ],
+          "technical_notes": "Create a php artisan contentspy:verify-connections command that pings all services and outputs a connection report. Run this command at end of task.",
+          "estimated_complexity": "s"
+        },
+        {
+          "id": "P1-T3",
+          "title": "Install and configure all Laravel packages",
+          "description": "Install Sanctum, Horizon, Telescope, MongoDB driver, Meilisearch Scout driver, Stripe SDK, Sentry, Resend, and all other required packages.",
+          "status": "todo",
+          "priority": "critical",
+          "depends_on": ["P1-T2"],
+          "commands": [
+            "php artisan install:api",
+            "composer require laravel/horizon",
+            "composer require laravel/telescope --dev",
+            "composer require laravel/scout",
+            "composer require meilisearch/meilisearch-php http-interop/http-factory-guzzle",
+            "composer require mongodb/laravel-mongodb",
+            "composer require stripe/stripe-php",
+            "composer require sentry/sentry-laravel",
+            "composer require resend/resend-laravel",
+            "composer require predis/predis",
+            "composer require league/flysystem-aws-s3-v3",
+            "composer require socialiteproviders/google",
+            "php artisan horizon:install",
+            "php artisan telescope:install",
+            "php artisan vendor:publish --provider='Laravel\\Scout\\ScoutServiceProvider'"
+          ],
+          "acceptance_criteria": [
+            "php artisan horizon:publish succeeds",
+            "Telescope dashboard loads at /telescope",
+            "Scout configured with Meilisearch driver",
+            "MongoDB Eloquent model can be instantiated without error",
+            "Stripe SDK instantiates without error"
+          ],
+          "technical_notes": "Pin package versions in composer.json to avoid breaking changes. Laravel 11 includes Sanctum by default via install:api.",
+          "estimated_complexity": "s"
+        },
+        {
+          "id": "P1-T4",
+          "title": "Create global configuration files",
+          "description": "Create all custom config files: contentspy.php (platform settings), ai-models.php (model pricing table), credits.php (credit costs per action), platforms.php (social platform rate limits).",
+          "status": "todo",
+          "priority": "critical",
+          "depends_on": ["P1-T3"],
+          "files_to_create": [
+            "config/contentspy.php",
+            "config/ai-models.php",
+            "config/credits.php",
+            "config/platforms.php"
+          ],
+          "acceptance_criteria": [
+            "config('ai-models.pricing.gpt-4o.input') returns 5.00",
+            "config('credits.actions.article_generation_per_1000_words') returns 5",
+            "config('platforms.instagram.max_posts_per_day') returns 25",
+            "config('contentspy.auto_spy_min_credits') returns 50"
+          ],
+          "technical_notes": "ai-models.php must include ALL models: gpt-4o, gpt-4-turbo, gpt-3.5-turbo, claude-3-5-sonnet, claude-3-opus, dall-e-3, stable-diffusion-xl. OpenRouter pricing fetched live — store in Redis cache with 1h TTL, not in config file.",
+          "estimated_complexity": "s"
+        },
+        {
+          "id": "P1-T5",
+          "title": "Initialize Playwright Node.js microservice",
+          "description": "Build the Playwright scraping microservice as a standalone Express.js app running in Docker. It exposes HTTP endpoints called by Laravel for all headless browser tasks.",
+          "status": "todo",
+          "priority": "critical",
+          "depends_on": ["P1-T1"],
+          "files_to_create": [
+            "services/playwright/package.json",
+            "services/playwright/index.js",
+            "services/playwright/scrapers/htmlScraper.js",
+            "services/playwright/scrapers/sitemapParser.js",
+            "services/playwright/Dockerfile"
+          ],
+          "acceptance_criteria": [
+            "POST /scrape returns HTML content for a given URL",
+            "Service handles timeout gracefully (returns error JSON, not crash)",
+            "Service is reachable from Laravel container via PLAYWRIGHT_SERVICE_URL",
+            "Playwright chromium launches without errors in Docker",
+            "Health endpoint GET /health returns {status: ok}"
+          ],
+          "technical_notes": "Use Playwright with chromium. Implement circuit breaker: if 5 consecutive requests fail, service returns 503 for 60s. User-agent rotation pool must have minimum 20 agents. Proxy support via PROXY_LIST env variable.",
+          "estimated_complexity": "m"
+        },
+        {
+          "id": "P1-T6",
+          "title": "Initialize FFmpeg Node.js microservice",
+          "description": "Build the FFmpeg video assembly microservice as a standalone Express.js app. Receives image URLs + audio URL, assembles MP4 video for TikTok/Instagram Reels.",
+          "status": "todo",
+          "priority": "high",
+          "depends_on": ["P1-T1"],
+          "files_to_create": [
+            "services/ffmpeg/package.json",
+            "services/ffmpeg/index.js",
+            "services/ffmpeg/assembler.js",
+            "services/ffmpeg/Dockerfile"
+          ],
+          "acceptance_criteria": [
+            "POST /assemble accepts {images: [], audio_url, duration, format} and returns MP4 file path",
+            "Outputs H.264 video at 1080x1920 (TikTok portrait) by default",
+            "Service handles missing audio gracefully (silent video fallback)",
+            "GET /health returns {status: ok}",
+            "Assembled video uploaded to R2 and URL returned in response"
+          ],
+          "technical_notes": "FFmpeg must be installed in Dockerfile. Output formats: mp4 (H.264/AAC). TikTok requires: H.264, 720p-1080p, 15-600s, AAC audio. Instagram Reels: H.264, 1080x1920, 3-90s. Implement resource limits: max 2 concurrent assemblies per container.",
+          "estimated_complexity": "m"
+        }
+      ]
+    },
+
+    {
+      "id": "P2",
+      "name": "Database — Migrations",
+      "description": "All MySQL and MongoDB schema definitions. Every table created in strict dependency order. No models until all migrations are done.",
+      "order": 2,
+      "status": "todo",
+      "tasks": [
+        {
+          "id": "P2-T1",
+          "title": "Migrate users table with workspace and plan fields",
+          "description": "Modify the default Laravel users migration to add: plan, role, is_active, google_id, avatar, timezone, locale.",
+          "status": "todo",
+          "priority": "critical",
+          "depends_on": ["P1-T3"],
+          "files_to_modify": ["database/migrations/0001_01_01_000000_create_users_table.php"],
+          "schema": {
+            "add_columns": {
+              "google_id": "VARCHAR(255) NULL UNIQUE after email",
+              "avatar": "VARCHAR(500) NULL after google_id",
+              "timezone": "VARCHAR(100) DEFAULT UTC after avatar",
+              "locale": "VARCHAR(10) DEFAULT en after timezone",
+              "is_active": "BOOLEAN DEFAULT TRUE after locale"
+            }
+          },
+          "acceptance_criteria": [
+            "php artisan migrate runs without error",
+            "users table contains all new columns",
+            "google_id has unique index"
+          ],
+          "technical_notes": "Do NOT create a new migration — modify the existing one. Run php artisan migrate:fresh after modification.",
+          "estimated_complexity": "xs"
+        },
+        {
+          "id": "P2-T2",
+          "title": "Create workspaces migration",
+          "description": "Workspaces are the multi-tenant unit. Every resource belongs to a workspace. One user can own multiple workspaces (agency use case).",
+          "status": "todo",
+          "priority": "critical",
+          "depends_on": ["P2-T1"],
+          "files_to_create": ["database/migrations/xxxx_create_workspaces_table.php"],
+          "schema": {
+            "columns": ["id", "ulid UNIQUE", "owner_id (FK users)", "name VARCHAR(255)", "slug VARCHAR(255) UNIQUE", "plan ENUM(starter,pro,agency) DEFAULT starter", "plan_expires_at TIMESTAMP NULL", "credits_balance INT DEFAULT 0", "credits_reserved INT DEFAULT 0", "stripe_customer_id VARCHAR(255) NULL", "stripe_subscription_id VARCHAR(255) NULL", "white_label BOOLEAN DEFAULT FALSE", "custom_domain VARCHAR(255) NULL", "custom_logo VARCHAR(500) NULL", "settings JSON NULL", "is_active BOOLEAN DEFAULT TRUE", "created_at", "updated_at"],
+            "indexes": ["ulid UNIQUE", "owner_id INDEX", "slug UNIQUE", "stripe_customer_id INDEX"]
+          },
+          "acceptance_criteria": [
+            "Migration runs without error",
+            "credits_reserved column exists for atomic credit reservation",
+            "ulid generated automatically on insert"
+          ],
+          "technical_notes": "Use ULID not UUID for workspace ID — shorter and sortable. credits_reserved tracks in-flight credit reservations to prevent overdraft.",
+          "estimated_complexity": "s"
+        },
+        {
+          "id": "P2-T3",
+          "title": "Create workspace_users pivot migration",
+          "description": "Many-to-many between users and workspaces with role. A user can belong to multiple workspaces with different roles.",
+          "status": "todo",
+          "priority": "critical",
+          "depends_on": ["P2-T2"],
+          "files_to_create": ["database/migrations/xxxx_create_workspace_users_table.php"],
+          "schema": {
+            "columns": ["id", "workspace_id (FK workspaces)", "user_id (FK users)", "role ENUM(owner,admin,editor,writer,viewer)", "invited_by INT NULL", "accepted_at TIMESTAMP NULL", "created_at", "updated_at"],
+            "indexes": ["workspace_id+user_id UNIQUE", "user_id INDEX"]
+          },
+          "acceptance_criteria": [
+            "Migration runs without error",
+            "Composite unique key on workspace_id+user_id prevents duplicate membership"
+          ],
+          "technical_notes": "accepted_at NULL means invitation pending. invited_by tracks who sent the invite for audit.",
+          "estimated_complexity": "xs"
+        },
+        {
+          "id": "P2-T4",
+          "title": "Create credit_transactions migration",
+          "description": "Immutable ledger of every credit debit and credit. This is the source of truth for credit balance — balance is always derived from this table.",
+          "status": "todo",
+          "priority": "critical",
+          "depends_on": ["P2-T2"],
+          "files_to_create": ["database/migrations/xxxx_create_credit_transactions_table.php"],
+          "schema": {
+            "columns": ["id", "workspace_id (FK workspaces)", "user_id (FK users) NULL", "type ENUM(purchase,plan_grant,debit,refund,expiry,adjustment)", "amount INT NOT NULL", "balance_after INT NOT NULL", "action_type VARCHAR(100) NULL", "action_id VARCHAR(255) NULL", "description TEXT NULL", "metadata JSON NULL", "created_at"],
+            "indexes": ["workspace_id INDEX", "type INDEX", "created_at INDEX", "action_type INDEX"]
+          },
+          "acceptance_criteria": [
+            "Migration runs without error",
+            "amount allows negative values (debits)",
+            "balance_after captured at transaction time for instant balance lookup"
+          ],
+          "technical_notes": "NEVER update or delete rows in this table — it is an append-only ledger. balance_after makes balance queries O(1) without summing all transactions.",
+          "estimated_complexity": "s"
+        },
+        {
+          "id": "P2-T5",
+          "title": "Create token_usage_logs migration",
+          "description": "Every AI API call records tokens consumed and cost in USD. This table is the foundation for margin analysis and billing transparency.",
+          "status": "todo",
+          "priority": "critical",
+          "depends_on": ["P2-T2"],
+          "files_to_create": ["database/migrations/xxxx_create_token_usage_logs_table.php"],
+          "schema": {
+            "columns": ["id", "workspace_id (FK workspaces)", "user_id (FK users) NULL", "site_id INT NULL", "action_type VARCHAR(100)", "model VARCHAR(100)", "provider ENUM(openai,anthropic,openrouter,replicate,elevenlabs,midjourney,dalle,stability)", "prompt_tokens INT DEFAULT 0", "completion_tokens INT DEFAULT 0", "total_tokens INT DEFAULT 0", "images_count INT DEFAULT 0", "video_seconds INT DEFAULT 0", "cost_usd DECIMAL(10,6) NOT NULL DEFAULT 0", "credits_consumed INT DEFAULT 0", "article_id INT NULL", "job_id VARCHAR(255) NULL", "request_id VARCHAR(255) NULL", "metadata JSON NULL", "created_at"],
+            "indexes": ["workspace_id INDEX", "provider INDEX", "model INDEX", "action_type INDEX", "created_at INDEX", "article_id INDEX"]
+          },
+          "acceptance_criteria": [
+            "Migration runs without error",
+            "cost_usd stored as DECIMAL(10,6) for micro-cost precision",
+            "All indexes created"
+          ],
+          "technical_notes": "This table grows fast — partition by month in production. Use created_at for time-range queries. admin dashboard aggregates from this table.",
+          "estimated_complexity": "s"
+        },
+        {
+          "id": "P2-T6",
+          "title": "Create sites migration",
+          "description": "WordPress sites managed by the user. Each site is the central entity that connects competitors, content, publishing, and social accounts.",
+          "status": "todo",
+          "priority": "critical",
+          "depends_on": ["P2-T2"],
+          "files_to_create": ["database/migrations/xxxx_create_sites_table.php"],
+          "schema": {
+            "columns": ["id", "workspace_id (FK workspaces)", "name VARCHAR(255)", "url VARCHAR(500) UNIQUE", "niche VARCHAR(255) NULL", "language VARCHAR(10) DEFAULT en", "connection_type ENUM(plugin,rest_api) DEFAULT plugin", "wp_api_url VARCHAR(500) NULL", "wp_username VARCHAR(255) NULL", "wp_app_password VARCHAR(500) NULL ENCRYPTED", "plugin_api_key VARCHAR(255) NULL UNIQUE", "plugin_secret VARCHAR(255) NULL ENCRYPTED", "plugin_version VARCHAR(20) NULL", "wp_version VARCHAR(20) NULL", "php_version VARCHAR(20) NULL", "connection_status ENUM(connected,disconnected,error) DEFAULT disconnected", "last_sync_at TIMESTAMP NULL", "last_post_at TIMESTAMP NULL", "ai_model_text VARCHAR(100) NULL", "ai_model_image VARCHAR(100) NULL", "default_author_id INT NULL", "timezone VARCHAR(100) DEFAULT UTC", "max_posts_per_day INT DEFAULT 10", "workflow_template VARCHAR(50) DEFAULT human_in_the_loop", "is_active BOOLEAN DEFAULT TRUE", "settings JSON NULL", "created_at", "updated_at"],
+            "indexes": ["workspace_id INDEX", "url UNIQUE", "plugin_api_key UNIQUE", "connection_status INDEX"]
+          },
+          "acceptance_criteria": [
+            "Migration runs without error",
+            "wp_app_password and plugin_secret columns marked for encryption in model",
+            "plugin_api_key unique index created"
+          ],
+          "technical_notes": "wp_app_password and plugin_secret stored encrypted via AES-256 using APP_KEY. Never log these values. plugin_api_key is the token the WP plugin uses to authenticate with SaaS.",
+          "estimated_complexity": "m"
+        },
+        {
+          "id": "P2-T7",
+          "title": "Create competitors migration",
+          "description": "Competitors tracked per site. One competitor can be monitored via multiple spy methods simultaneously.",
+          "status": "todo",
+          "priority": "critical",
+          "depends_on": ["P2-T6"],
+          "files_to_create": ["database/migrations/xxxx_create_competitors_table.php"],
+          "schema": {
+            "columns": ["id", "site_id (FK sites)", "workspace_id (FK workspaces)", "name VARCHAR(255)", "domain VARCHAR(500)", "rss_url VARCHAR(500) NULL", "sitemap_url VARCHAR(500) NULL", "blog_url VARCHAR(500) NULL", "twitter_handle VARCHAR(100) NULL", "instagram_handle VARCHAR(100) NULL", "semrush_domain VARCHAR(500) NULL", "active_methods JSON DEFAULT []", "auto_spy BOOLEAN DEFAULT FALSE", "auto_spy_interval INT DEFAULT 60 (minutes)", "confidence_threshold_suggest INT DEFAULT 50", "confidence_threshold_generate INT DEFAULT 70", "confidence_threshold_publish INT DEFAULT 85", "last_scanned_at TIMESTAMP NULL", "total_articles_detected INT DEFAULT 0", "is_active BOOLEAN DEFAULT TRUE", "created_at", "updated_at"],
+            "indexes": ["site_id INDEX", "workspace_id INDEX", "domain INDEX", "auto_spy INDEX"]
+          },
+          "acceptance_criteria": [
+            "Migration runs without error",
+            "active_methods is JSON array of method strings",
+            "Three confidence thresholds exist for suggest/generate/publish"
+          ],
+          "technical_notes": "active_methods stores array like ['rss', 'sitemap', 'html_scraping']. confidence_threshold_publish should default to 85 to prevent accidental full autopilot.",
+          "estimated_complexity": "s"
+        },
+        {
+          "id": "P2-T8",
+          "title": "Create spy_detections migration",
+          "description": "Every article detected from every competitor via any spy method. Deduplication happens here via content_hash.",
+          "status": "todo",
+          "priority": "critical",
+          "depends_on": ["P2-T7"],
+          "files_to_create": ["database/migrations/xxxx_create_spy_detections_table.php"],
+          "schema": {
+            "columns": ["id", "competitor_id (FK competitors)", "site_id (FK sites)", "workspace_id (FK workspaces)", "method ENUM(rss,html_scraping,sitemap,google_news,social_signal,keyword_gap,serp)", "source_url TEXT", "title TEXT NULL", "excerpt TEXT NULL", "author VARCHAR(255) NULL", "published_at TIMESTAMP NULL", "categories JSON NULL", "tags JSON NULL", "content_hash VARCHAR(64) NOT NULL", "opportunity_score INT DEFAULT 0", "keyword_difficulty INT NULL", "estimated_traffic INT NULL", "raw_data JSON NULL", "status ENUM(new,suggested,generating,published,rejected,expired) DEFAULT new", "suggestion_id INT NULL", "credits_consumed INT DEFAULT 0", "created_at", "updated_at"],
+            "indexes": ["competitor_id INDEX", "site_id INDEX", "content_hash UNIQUE", "status INDEX", "method INDEX", "opportunity_score INDEX", "created_at INDEX"]
+          },
+          "acceptance_criteria": [
+            "Migration runs without error",
+            "content_hash UNIQUE prevents duplicate detections across methods",
+            "All status transitions trackable via status field"
+          ],
+          "technical_notes": "content_hash = SHA-256 of normalized URL + title. Normalization: lowercase, strip UTM params, strip trailing slash. This is the dedup key across all 7 spy methods.",
+          "estimated_complexity": "m"
+        },
+        {
+          "id": "P2-T9",
+          "title": "Create content_suggestions migration",
+          "description": "Content opportunity cards generated from spy detections. Each card contains the AI-generated brief for article creation.",
+          "status": "todo",
+          "priority": "critical",
+          "depends_on": ["P2-T8"],
+          "files_to_create": ["database/migrations/xxxx_create_content_suggestions_table.php"],
+          "schema": {
+            "columns": ["id", "workspace_id (FK workspaces)", "site_id (FK sites)", "detection_id (FK spy_detections) NULL", "suggested_title TEXT", "content_angle TEXT NULL", "target_keywords JSON NULL", "recommended_word_count INT DEFAULT 1500", "tone VARCHAR(100) NULL", "h2_structure JSON NULL", "estimated_traffic INT NULL", "keyword_difficulty INT NULL", "opportunity_score INT DEFAULT 0", "status ENUM(pending,accepted,scheduled,generating,generated,published,rejected,expired) DEFAULT pending", "scheduled_for TIMESTAMP NULL", "rejected_reason TEXT NULL", "article_id INT NULL", "created_at", "updated_at", "expires_at TIMESTAMP NULL"],
+            "indexes": ["workspace_id INDEX", "site_id INDEX", "status INDEX", "opportunity_score INDEX", "expires_at INDEX"]
+          },
+          "acceptance_criteria": [
+            "Migration runs without error",
+            "expires_at defaults to 30 days from creation (set in model)",
+            "article_id nullable FK for when article is generated from suggestion"
+          ],
+          "technical_notes": "expires_at set in model boot method: +30 days from created_at. Expired suggestions auto-archived via scheduled command.",
+          "estimated_complexity": "s"
+        },
+        {
+          "id": "P2-T10",
+          "title": "Create articles migration",
+          "description": "Generated articles with all content, SEO metadata, generation metadata, and publishing status.",
+          "status": "todo",
+          "priority": "critical",
+          "depends_on": ["P2-T9"],
+          "files_to_create": ["database/migrations/xxxx_create_articles_table.php"],
+          "schema": {
+            "columns": ["id", "workspace_id (FK workspaces)", "site_id (FK sites)", "suggestion_id (FK content_suggestions) NULL", "title TEXT", "slug VARCHAR(500) NULL", "content LONGTEXT NULL", "excerpt TEXT NULL", "meta_title VARCHAR(255) NULL", "meta_description VARCHAR(500) NULL", "focus_keyword VARCHAR(255) NULL", "target_keywords JSON NULL", "word_count INT DEFAULT 0", "featured_image_url VARCHAR(500) NULL", "featured_image_r2_key VARCHAR(500) NULL", "inline_images JSON NULL", "outline JSON NULL", "tone VARCHAR(100) NULL", "ai_model_text VARCHAR(100) NULL", "ai_model_image VARCHAR(100) NULL", "total_tokens_used INT DEFAULT 0", "total_cost_usd DECIMAL(10,4) DEFAULT 0", "total_credits_consumed INT DEFAULT 0", "generation_status ENUM(pending,outline,writing,seo,images,review,ready,failed) DEFAULT pending", "review_status ENUM(pending,approved,rejected) DEFAULT pending", "duplicate_check_passed BOOLEAN DEFAULT FALSE", "duplicate_score DECIMAL(5,2) DEFAULT 0", "wp_post_id INT NULL", "wp_published_at TIMESTAMP NULL", "wp_post_url VARCHAR(500) NULL", "publish_status ENUM(draft,scheduled,published,failed) DEFAULT draft", "scheduled_for TIMESTAMP NULL", "created_at", "updated_at"],
+            "indexes": ["workspace_id INDEX", "site_id INDEX", "generation_status INDEX", "publish_status INDEX", "wp_post_id INDEX"]
+          },
+          "acceptance_criteria": [
+            "Migration runs without error",
+            "total_cost_usd tracked per article for margin analysis",
+            "generation_status tracks each step of 8-step pipeline"
+          ],
+          "technical_notes": "content stored as LONGTEXT to handle 5000+ word articles. inline_images JSON array of {url, r2_key, alt_text, position} objects. outline JSON stores H2/H3 structure before generation.",
+          "estimated_complexity": "m"
+        },
+        {
+          "id": "P2-T11",
+          "title": "Create social_accounts and social_posts migrations",
+          "description": "Social media accounts connected per site, and posts published or scheduled per article per platform.",
+          "status": "todo",
+          "priority": "critical",
+          "depends_on": ["P2-T6"],
+          "files_to_create": [
+            "database/migrations/xxxx_create_social_accounts_table.php",
+            "database/migrations/xxxx_create_social_posts_table.php"
+          ],
+          "schema": {
+            "social_accounts": ["id", "site_id (FK sites)", "workspace_id (FK workspaces)", "platform ENUM(facebook,instagram,tiktok,pinterest)", "platform_account_id VARCHAR(255)", "account_name VARCHAR(255)", "access_token TEXT ENCRYPTED", "refresh_token TEXT NULL ENCRYPTED", "token_expires_at TIMESTAMP NULL", "page_id VARCHAR(255) NULL", "board_ids JSON NULL", "is_active BOOLEAN DEFAULT TRUE", "created_at", "updated_at"],
+            "social_posts": ["id", "article_id (FK articles)", "social_account_id (FK social_accounts)", "workspace_id (FK workspaces)", "platform ENUM(facebook,instagram,tiktok,pinterest)", "post_type ENUM(image,carousel,reel,video,pin,idea_pin)", "caption TEXT NULL", "hashtags TEXT NULL", "media_urls JSON NULL", "video_url VARCHAR(500) NULL", "platform_post_id VARCHAR(255) NULL", "status ENUM(pending,generating,ready,scheduled,published,failed)", "scheduled_for TIMESTAMP NULL", "published_at TIMESTAMP NULL", "retry_count INT DEFAULT 0", "error_message TEXT NULL", "credits_consumed INT DEFAULT 0", "metrics JSON NULL", "metrics_updated_at TIMESTAMP NULL", "created_at", "updated_at"]
+          },
+          "acceptance_criteria": [
+            "Both migrations run without error",
+            "access_token and refresh_token marked encrypted in model",
+            "social_posts.retry_count supports up to 3 retry attempts"
+          ],
+          "technical_notes": "Facebook and Instagram share the same OAuth app but have separate social_accounts rows. token_expires_at used by token refresh service to proactively refresh before expiry.",
+          "estimated_complexity": "m"
+        },
+        {
+          "id": "P2-T12",
+          "title": "Create workflow_logs and spy_job_logs migrations",
+          "description": "Audit logs for workflow execution per site and for every spy scan job. These are the debug and compliance records.",
+          "status": "todo",
+          "priority": "high",
+          "depends_on": ["P2-T7"],
+          "files_to_create": [
+            "database/migrations/xxxx_create_workflow_logs_table.php",
+            "database/migrations/xxxx_create_spy_job_logs_table.php"
+          ],
+          "schema": {
+            "workflow_logs": ["id", "site_id (FK sites)", "workspace_id (FK workspaces)", "trigger ENUM(auto_spy,manual,schedule,webhook)", "step VARCHAR(100)", "status ENUM(started,completed,failed,skipped)", "input JSON NULL", "output JSON NULL", "credits_consumed INT DEFAULT 0", "duration_ms INT NULL", "error_message TEXT NULL", "created_at"],
+            "spy_job_logs": ["id", "competitor_id (FK competitors)", "method VARCHAR(50)", "status ENUM(started,completed,failed)", "new_detections INT DEFAULT 0", "credits_consumed INT DEFAULT 0", "duration_ms INT NULL", "error_message TEXT NULL", "created_at"]
+          },
+          "acceptance_criteria": [
+            "Both migrations run without error",
+            "workflow_logs captures every step of DETECT→SCORE→SUGGEST→GENERATE→PUBLISH→DISTRIBUTE",
+            "spy_job_logs records new_detections count per run"
+          ],
+          "technical_notes": "These tables are append-only. Purge records older than 90 days via scheduled command to control storage growth.",
+          "estimated_complexity": "s"
+        },
+        {
+          "id": "P2-T13",
+          "title": "Create notifications and webhook_endpoints migrations",
+          "description": "In-app notifications store and user-configured webhook endpoints for event delivery.",
+          "status": "todo",
+          "priority": "medium",
+          "depends_on": ["P2-T2"],
+          "files_to_create": [
+            "database/migrations/xxxx_create_notifications_table.php",
+            "database/migrations/xxxx_create_webhook_endpoints_table.php"
+          ],
+          "schema": {
+            "notifications": "Use Laravel default notifications migration",
+            "webhook_endpoints": ["id", "workspace_id (FK workspaces)", "url VARCHAR(500)", "secret VARCHAR(255) ENCRYPTED", "events JSON", "is_active BOOLEAN DEFAULT TRUE", "last_triggered_at TIMESTAMP NULL", "failure_count INT DEFAULT 0", "created_at", "updated_at"]
+          },
+          "acceptance_criteria": [
+            "Both migrations run without error",
+            "webhook_endpoints.events stores array of event strings",
+            "failure_count auto-disables webhook after 10 consecutive failures (enforced in service)"
+          ],
+          "technical_notes": "Webhook secret used for HMAC signature on outgoing payloads. failure_count incremented on each failed delivery, reset on success.",
+          "estimated_complexity": "s"
+        }
+      ]
+    },
+
+    {
+      "id": "P3",
+      "name": "Database — Models & Relations",
+      "description": "All Eloquent models with relations, casts, scopes, and encrypted attributes. MongoDB models for spy snapshots.",
+      "order": 3,
+      "status": "todo",
+      "tasks": [
+        {
+          "id": "P3-T1",
+          "title": "Create User and Workspace models with relations",
+          "description": "User belongs to many Workspaces. Workspace has one owner (User). Setup all fillable, casts, hidden, and relations.",
+          "status": "todo",
+          "priority": "critical",
+          "depends_on": ["P2-T3"],
+          "files_to_create": ["app/Models/Workspace.php"],
+          "files_to_modify": ["app/Models/User.php"],
+          "acceptance_criteria": [
+            "$user->workspaces returns collection of Workspace",
+            "$workspace->owner returns User",
+            "$workspace->members returns all workspace users with pivot role",
+            "User model has currentWorkspace() method returning active workspace from session"
+          ],
+          "technical_notes": "Add HasCurrentWorkspace trait to User. Workspace must have global scope or helper to always scope queries by current workspace.",
+          "estimated_complexity": "m"
+        },
+        {
+          "id": "P3-T2",
+          "title": "Create Site, Competitor, and SpyDetection models",
+          "description": "Core spy engine models. Site has many Competitors. Competitor has many SpyDetections. SpyDetection deduplicates via content_hash.",
+          "status": "todo",
+          "priority": "critical",
+          "depends_on": ["P2-T8", "P3-T1"],
+          "files_to_create": [
+            "app/Models/Site.php",
+            "app/Models/Competitor.php",
+            "app/Models/SpyDetection.php"
+          ],
+          "acceptance_criteria": [
+            "$site->competitors returns collection",
+            "$competitor->detections returns ordered by created_at DESC",
+            "SpyDetection::findOrCreateByHash() creates or returns existing by content_hash",
+            "Competitor model has scopeWithAutoSpy() local scope"
+          ],
+          "technical_notes": "All models must use WorkspaceScopedModel trait that auto-applies workspace_id scope. Encrypted attributes: site->wp_app_password, site->plugin_secret.",
+          "estimated_complexity": "m"
+        },
+        {
+          "id": "P3-T3",
+          "title": "Create Article, ContentSuggestion models with pipeline state machine",
+          "description": "Article model manages the 8-step generation pipeline state. ContentSuggestion manages the opportunity card lifecycle.",
+          "status": "todo",
+          "priority": "critical",
+          "depends_on": ["P2-T10", "P3-T2"],
+          "files_to_create": [
+            "app/Models/Article.php",
+            "app/Models/ContentSuggestion.php"
+          ],
+          "acceptance_criteria": [
+            "$article->advancePipelineStep() transitions generation_status to next step",
+            "$article->tokenUsageLogs() returns all related logs",
+            "$article->totalCostUsd attribute computed from token_usage_logs",
+            "ContentSuggestion auto-sets expires_at to +30 days in creating event",
+            "ContentSuggestion::scopePending() filters status=pending and not expired"
+          ],
+          "technical_notes": "Use state machine pattern for generation_status transitions. Invalid transitions should throw InvalidStateTransitionException. This prevents jobs from jumping steps.",
+          "estimated_complexity": "m"
+        },
+        {
+          "id": "P3-T4",
+          "title": "Create CreditTransaction, TokenUsageLog models",
+          "description": "Financial models. CreditTransaction is append-only. TokenUsageLog records every AI API call. Both provide aggregate methods for dashboards.",
+          "status": "todo",
+          "priority": "critical",
+          "depends_on": ["P2-T5", "P3-T1"],
+          "files_to_create": [
+            "app/Models/CreditTransaction.php",
+            "app/Models/TokenUsageLog.php"
+          ],
+          "acceptance_criteria": [
+            "CreditTransaction::boot() prevents update and delete (throws exception)",
+            "TokenUsageLog::scopeByModel() filters by model string",
+            "TokenUsageLog::totalCostByWorkspace() returns sum grouped by provider",
+            "Workspace->creditBalance attribute returns last balance_after from transactions"
+          ],
+          "technical_notes": "CreditTransaction is immutable — override save(), update(), delete() to throw LogicException if row already exists. balance_after field makes balance O(1) lookup.",
+          "estimated_complexity": "m"
+        },
+        {
+          "id": "P3-T5",
+          "title": "Create SocialAccount, SocialPost models",
+          "description": "Social media integration models. SocialAccount stores encrypted OAuth tokens with refresh logic. SocialPost tracks per-platform publishing state.",
+          "status": "todo",
+          "priority": "critical",
+          "depends_on": ["P2-T11", "P3-T2"],
+          "files_to_create": [
+            "app/Models/SocialAccount.php",
+            "app/Models/SocialPost.php"
+          ],
+          "acceptance_criteria": [
+            "SocialAccount->access_token cast to encrypted",
+            "SocialAccount->isTokenExpired() returns bool",
+            "SocialAccount->refreshToken() calls platform-specific refresh and updates DB",
+            "SocialPost->scopePending() returns posts ready to publish",
+            "SocialPost->canRetry() returns false when retry_count >= 3"
+          ],
+          "technical_notes": "Each platform has different token expiry: Facebook 60 days, Instagram 60 days, TikTok 30 days, Pinterest never expires (until revoked). refreshToken() must handle each case.",
+          "estimated_complexity": "m"
+        },
+        {
+          "id": "P3-T6",
+          "title": "Create MongoDB models for spy snapshots",
+          "description": "MongoDB Eloquent models for raw spy data: RssSnapshot, SitemapSnapshot, HtmlSnapshot. These store raw data before processing.",
+          "status": "todo",
+          "priority": "high",
+          "depends_on": ["P1-T3", "P2-T7"],
+          "files_to_create": [
+            "app/Models/Mongo/RssSnapshot.php",
+            "app/Models/Mongo/SitemapSnapshot.php",
+            "app/Models/Mongo/HtmlSnapshot.php",
+            "app/Models/Mongo/SpyRawData.php"
+          ],
+          "acceptance_criteria": [
+            "RssSnapshot::latestForCompetitor() returns most recent snapshot",
+            "SitemapSnapshot::diffUrls() returns new URLs vs previous snapshot",
+            "Models use MongoDB connection defined in database.php"
+          ],
+          "technical_notes": "MongoDB used only for raw spy data — all processed data goes to MySQL. MongoDB documents TTL: 30 days (set via TTL index on created_at). Use mongodb/laravel-mongodb package.",
+          "estimated_complexity": "m"
+        }
+      ]
+    },
+
+    {
+      "id": "P4",
+      "name": "Authentication, Authorization & Security",
+      "description": "Full auth stack: registration, login, Google OAuth, workspace switching, role-based authorization, API key management.",
+      "order": 4,
+      "status": "todo",
+      "tasks": [
+        {
+          "id": "P4-T1",
+          "title": "Implement registration, login, logout API endpoints",
+          "description": "Standard email/password auth via Sanctum SPA. Registration creates user + default workspace in one transaction.",
+          "status": "todo",
+          "priority": "critical",
+          "depends_on": ["P3-T1"],
+          "files_to_create": [
+            "app/Http/Controllers/Auth/RegisterController.php",
+            "app/Http/Controllers/Auth/LoginController.php",
+            "app/Http/Requests/Auth/RegisterRequest.php",
+            "app/Http/Requests/Auth/LoginRequest.php"
+          ],
+          "acceptance_criteria": [
+            "POST /api/auth/register creates user + workspace in single transaction",
+            "POST /api/auth/login returns Sanctum token",
+            "POST /api/auth/logout revokes current token",
+            "Registration grants Starter plan with 500 free credits",
+            "Invalid credentials return 401 with clear message",
+            "Rate limit: 5 login attempts per minute per IP"
+          ],
+          "technical_notes": "Registration must be atomic: user + workspace + credit_transaction (500 credits grant) + workspace_users (owner role) in one DB transaction. If any step fails, all rolled back.",
+          "estimated_complexity": "m"
+        },
+        {
+          "id": "P4-T2",
+          "title": "Implement Google OAuth login",
+          "description": "Google social login via Laravel Socialite. Creates account if new user, links to existing if email matches.",
+          "status": "todo",
+          "priority": "high",
+          "depends_on": ["P4-T1"],
+          "files_to_create": ["app/Http/Controllers/Auth/GoogleController.php"],
+          "acceptance_criteria": [
+            "GET /api/auth/google redirects to Google OAuth consent screen",
+            "GET /api/auth/google/callback handles response, creates/links user",
+            "New Google user gets workspace + 500 credits same as registration",
+            "Existing user linked by email match — google_id updated",
+            "Returns Sanctum token on success"
+          ],
+          "technical_notes": "Store google_id for future logins. Avatar URL saved to users.avatar. Use Socialite stateless() for SPA compatibility.",
+          "estimated_complexity": "s"
+        },
+        {
+          "id": "P4-T3",
+          "title": "Implement workspace authorization (roles and permissions)",
+          "description": "Define all permissions per role. Implement Laravel Gates and Policies for every protected resource.",
+          "status": "todo",
+          "priority": "critical",
+          "depends_on": ["P3-T1"],
+          "files_to_create": [
+            "app/Policies/SitePolicy.php",
+            "app/Policies/CompetitorPolicy.php",
+            "app/Policies/ArticlePolicy.php",
+            "app/Policies/WorkspacePolicy.php",
+            "app/Enums/WorkspaceRole.php",
+            "app/Services/PermissionService.php"
+          ],
+          "acceptance_criteria": [
+            "Owner and Admin can: create/delete sites, manage billing, invite users",
+            "Editor can: manage competitors, approve articles, publish",
+            "Writer can: create articles, view suggestions",
+            "Viewer can: only read dashboard data",
+            "Unauthorized action returns 403",
+            "All policies tested with unit tests"
+          ],
+          "technical_notes": "Use PHP 8.1 Enum for WorkspaceRole. PermissionService::can(user, action, workspace) is the single entry point for all permission checks — never inline role checks.",
+          "estimated_complexity": "m"
+        },
+        {
+          "id": "P4-T4",
+          "title": "Implement credit reservation and atomic deduction service",
+          "description": "CreditService handles all credit operations. Reservation (lock credits before job starts), confirm (deduct on success), refund (release on failure). Race-condition safe.",
+          "status": "todo",
+          "priority": "critical",
+          "depends_on": ["P3-T4"],
+          "files_to_create": ["app/Services/CreditService.php"],
+          "acceptance_criteria": [
+            "CreditService::reserve(workspace, action, amount) uses Redis SETNX lock + DB update credits_reserved",
+            "CreditService::confirm(reservationId) deducts from balance, releases reservation, logs transaction",
+            "CreditService::refund(reservationId) releases reservation without deduction",
+            "Two concurrent reserve() calls for same workspace cannot overdraft",
+            "InsufficientCreditsException thrown if balance - reserved < amount",
+            "Every operation creates CreditTransaction record"
+          ],
+          "technical_notes": "Use Redis atomic operations: MULTI/EXEC or Lua script to check-and-decrement in one atomic step. DB credits_reserved column tracks in-flight reservations. NEVER subtract credits without a reservation ID.",
+          "estimated_complexity": "l"
+        },
+        {
+          "id": "P4-T5",
+          "title": "Implement plan limit enforcement middleware",
+          "description": "Middleware that enforces plan limits: max sites, max competitors, max posts per day, max social platforms. Checked at job creation time.",
+          "status": "todo",
+          "priority": "critical",
+          "depends_on": ["P4-T3"],
+          "files_to_create": ["app/Http/Middleware/EnforcePlanLimits.php"],
+          "acceptance_criteria": [
+            "Starter plan: blocked at 4th site creation attempt",
+            "Starter plan: blocked at 6th competitor creation attempt per site",
+            "Pro plan: blocked at 16th site creation attempt",
+            "Full autopilot blocked on Starter plan with 402 response",
+            "White-label blocked on non-Agency plan with 402 response",
+            "Clear error messages indicating which limit was hit and upgrade path"
+          ],
+          "technical_notes": "Plan limits defined in config/contentspy.php, never hardcoded in middleware. Returns 402 Payment Required for limit violations with upgrade_url in response body.",
+          "estimated_complexity": "m"
+        }
+      ]
+    },
+
+    {
+      "id": "P5",
+      "name": "AI Provider Integration & Token Tracking",
+      "description": "All AI provider clients with token tracking wired in. Every AI call goes through the AiGateway which records usage automatically.",
+      "order": 5,
+      "status": "todo",
+      "tasks": [
+        {
+          "id": "P5-T1",
+          "title": "Build AiGateway — central AI dispatch service",
+          "description": "Single entry point for all AI text generation. Handles provider selection, fallback chain, token recording, and cost calculation. No direct provider calls outside this service.",
+          "status": "todo",
+          "priority": "critical",
+          "depends_on": ["P3-T4", "P4-T4"],
+          "files_to_create": [
+            "app/Services/Ai/AiGateway.php",
+            "app/Services/Ai/Providers/OpenAiProvider.php",
+            "app/Services/Ai/Providers/AnthropicProvider.php",
+            "app/Services/Ai/Providers/OpenRouterProvider.php",
+            "app/Services/Ai/Contracts/AiProviderInterface.php",
+            "app/Services/Ai/AiResponse.php",
+            "app/Services/Ai/TokenPricingService.php"
+          ],
+          "acceptance_criteria": [
+            "AiGateway::generate(prompt, model, context) returns AiResponse with text + token counts",
+            "AiResponse contains: text, model, prompt_tokens, completion_tokens, cost_usd",
+            "Token usage automatically logged to token_usage_logs after every call",
+            "Fallback: if primary model fails → try fallback model → log both attempts",
+            "TokenPricingService::calculate(model, prompt_tokens, completion_tokens) returns cost_usd",
+            "OpenRouter pricing fetched from /models endpoint, cached in Redis for 1 hour",
+            "All providers implement AiProviderInterface"
+          ],
+          "technical_notes": "AiGateway must be the ONLY class that calls external AI APIs. All other services call AiGateway. This ensures 100% token tracking coverage. TokenPricingService uses config/ai-models.php for known models, live fetch for OpenRouter models.",
+          "estimated_complexity": "xl"
+        },
+        {
+          "id": "P5-T2",
+          "title": "Build ImageGenerationGateway with provider fallback",
+          "description": "Central image generation service. Handles DALL-E 3, Stable Diffusion (Replicate), and Midjourney (Discord bot). All image costs logged.",
+          "status": "todo",
+          "priority": "critical",
+          "depends_on": ["P5-T1"],
+          "files_to_create": [
+            "app/Services/Ai/ImageGenerationGateway.php",
+            "app/Services/Ai/Providers/DalleProvider.php",
+            "app/Services/Ai/Providers/ReplicateProvider.php",
+            "app/Services/Ai/Providers/MidjourneyProvider.php"
+          ],
+          "acceptance_criteria": [
+            "ImageGenerationGateway::generate(prompt, size, provider) returns {url, r2_key, cost_usd}",
+            "Generated image uploaded to R2, public URL returned",
+            "Midjourney provider wraps Discord bot automation, returns image URL",
+            "Fallback: Midjourney fails → DALL-E 3 → Stable Diffusion",
+            "Cost logged to token_usage_logs with images_count=1 and cost_usd",
+            "MidjourneyProvider requires MIDJOURNEY_DISCORD_TOKEN env var — throws ConfigException if missing"
+          ],
+          "technical_notes": "Midjourney via Discord is fragile. Implement with 60s timeout and retry once. If it fails twice, mark provider as temporarily unavailable (Redis flag, 30min TTL) and use fallback immediately.",
+          "estimated_complexity": "xl"
+        },
+        {
+          "id": "P5-T3",
+          "title": "Build TTS and video script generation services",
+          "description": "Text-to-speech via ElevenLabs/OpenAI TTS. Video script generation from article content. Both feed into FFmpeg microservice for TikTok/Reels.",
+          "status": "todo",
+          "priority": "high",
+          "depends_on": ["P5-T1"],
+          "files_to_create": [
+            "app/Services/Ai/TtsService.php",
+            "app/Services/Ai/VideoScriptService.php"
+          ],
+          "acceptance_criteria": [
+            "TtsService::generate(text, voice) returns {audio_url, duration_seconds, cost_usd}",
+            "Audio file uploaded to R2, URL returned",
+            "VideoScriptService::fromArticle(article) extracts 3-5 key points as video script",
+            "Cost logged to token_usage_logs with video_seconds and cost_usd",
+            "Fallback: ElevenLabs fails → OpenAI TTS"
+          ],
+          "technical_notes": "ElevenLabs pricing: $0.30 per 1000 characters. OpenAI TTS: $0.015 per 1000 characters. Log chars_count and cost_usd for both.",
+          "estimated_complexity": "m"
+        }
+      ]
+    },
+
+    {
+      "id": "P6",
+      "name": "Spy Engine — All 7 Methods",
+      "description": "All 7 competitor spy methods as independent services. Each callable independently and via the orchestrator. All consume credits and log to spy_job_logs.",
+      "order": 6,
+      "status": "todo",
+      "tasks": [
+        {
+          "id": "P6-T1",
+          "title": "Build SpyOrchestrator and base SpyMethod contract",
+          "description": "SpyOrchestrator coordinates which methods to run for a competitor. All spy methods implement SpyMethodInterface. Deduplication via content_hash enforced here.",
+          "status": "todo",
+          "priority": "critical",
+          "depends_on": ["P5-T1", "P4-T4", "P3-T2"],
+          "files_to_create": [
+            "app/Services/Spy/SpyOrchestrator.php",
+            "app/Services/Spy/Contracts/SpyMethodInterface.php",
+            "app/Services/Spy/SpyDeduplicator.php",
+            "app/Services/Spy/OpportunityScorer.php"
+          ],
+          "acceptance_criteria": [
+            "SpyOrchestrator::run(competitor) dispatches all active_methods as async jobs",
+            "SpyMethodInterface::detect(competitor) returns array of DetectedArticle DTOs",
+            "SpyDeduplicator::process(detections) filters duplicates via content_hash before DB insert",
+            "OpportunityScorer::score(detection) returns 0-100 score",
+            "Credits reserved before each method run, confirmed after, refunded on failure",
+            "spy_job_logs row created for every run"
+          ],
+          "technical_notes": "OpportunityScorer factors: article length (longer = higher), keyword density, freshness (newer = higher), competitor domain authority. Weights configurable in config/contentspy.php.",
+          "estimated_complexity": "l"
+        },
+        {
+          "id": "P6-T2",
+          "title": "Implement RSS feed spy method",
+          "description": "Parse RSS/Atom feeds, compare with last snapshot in MongoDB, extract new articles, score them.",
+          "status": "todo",
+          "priority": "critical",
+          "depends_on": ["P6-T1"],
+          "files_to_create": ["app/Services/Spy/Methods/RssSpyMethod.php"],
+          "acceptance_criteria": [
+            "Parses RSS 2.0 and Atom 1.0 feeds",
+            "Compares with RssSnapshot in MongoDB — only new articles returned",
+            "Saves new snapshot to MongoDB after processing",
+            "Handles malformed XML without crashing (returns empty array + logs error)",
+            "Respects configurable interval — won't re-scan before interval elapsed",
+            "1 credit consumed per run"
+          ],
+          "technical_notes": "Use SimplePie or custom XML parser. Normalize feed item: guid → source_url, pubDate → published_at. content_hash = SHA-256(normalized_url + title).",
+          "estimated_complexity": "m"
+        },
+        {
+          "id": "P6-T3",
+          "title": "Implement HTML scraping spy method via Playwright microservice",
+          "description": "Call Playwright microservice to scrape competitor blog index, extract article links, compare with previous HTML snapshot.",
+          "status": "todo",
+          "priority": "critical",
+          "depends_on": ["P6-T1", "P1-T5"],
+          "files_to_create": ["app/Services/Spy/Methods/HtmlScrapingSpyMethod.php"],
+          "acceptance_criteria": [
+            "Sends POST request to Playwright service with competitor blog URL",
+            "Extracts all article links from response HTML",
+            "Compares with HtmlSnapshot in MongoDB — only new URLs returned",
+            "Handles Playwright service timeout (30s) gracefully",
+            "Handles anti-bot detection response — marks competitor as temporarily unscrapable",
+            "3 credits consumed per run"
+          ],
+          "technical_notes": "Circuit breaker: if Playwright returns 503 or times out 3 times in a row for a competitor, set Redis flag to pause HTML scraping for that competitor for 1 hour.",
+          "estimated_complexity": "m"
+        },
+        {
+          "id": "P6-T4",
+          "title": "Implement sitemap, Google News, and social signal spy methods",
+          "description": "Three additional spy methods: sitemap XML parsing, Google News RSS monitoring, and social signal tracking via platform APIs.",
+          "status": "todo",
+          "priority": "high",
+          "depends_on": ["P6-T1"],
+          "files_to_create": [
+            "app/Services/Spy/Methods/SitemapSpyMethod.php",
+            "app/Services/Spy/Methods/GoogleNewsSpyMethod.php",
+            "app/Services/Spy/Methods/SocialSignalSpyMethod.php"
+          ],
+          "acceptance_criteria": [
+            "SitemapSpyMethod: parses sitemap-index recursively, returns new URLs vs snapshot",
+            "GoogleNewsSpyMethod: queries Google News RSS for competitor domain, returns new articles",
+            "SocialSignalSpyMethod: fetches Twitter/X API v2 recent tweets for competitor handle",
+            "All three handle API errors gracefully and log to spy_job_logs",
+            "Credits consumed: sitemap=1, google_news=2, social_signal=2"
+          ],
+          "technical_notes": "Twitter API v2 requires Bearer token. Store in config. Google News is via RSS: https://news.google.com/rss/search?q=site:domain.com — no API key needed.",
+          "estimated_complexity": "l"
+        },
+        {
+          "id": "P6-T5",
+          "title": "Implement keyword gap and SERP monitoring spy methods",
+          "description": "Two SEO-focused spy methods using third-party APIs: SEMrush/Ahrefs for keyword gaps, SERP API for rank tracking.",
+          "status": "todo",
+          "priority": "medium",
+          "depends_on": ["P6-T1"],
+          "files_to_create": [
+            "app/Services/Spy/Methods/KeywordGapSpyMethod.php",
+            "app/Services/Spy/Methods/SerpMonitoringSpyMethod.php"
+          ],
+          "acceptance_criteria": [
+            "KeywordGapSpyMethod: calls SEMrush API with user's API key, returns keyword gap opportunities",
+            "SerpMonitoringSpyMethod: calls SERP API for tracked keywords, detects ranking changes",
+            "Both methods require user-provided API keys — throw MissingApiKeyException if absent",
+            "5 credits consumed per keyword gap run, 3 per SERP check"
+          ],
+          "technical_notes": "User API keys stored encrypted in site.settings JSON field. Fetch via $site->settings['semrush_api_key']. Never log or expose these keys.",
+          "estimated_complexity": "m"
+        },
+        {
+          "id": "P6-T6",
+          "title": "Build auto-spy scheduler and queue jobs",
+          "description": "Laravel scheduled commands that trigger auto-spy for all competitors with auto_spy=true on their configured intervals. Dispatches jobs to Horizon queues.",
+          "status": "todo",
+          "priority": "critical",
+          "depends_on": ["P6-T1"],
+          "files_to_create": [
+            "app/Jobs/Spy/RunSpyMethodJob.php",
+            "app/Jobs/Spy/RunCompetitorSpyJob.php",
+            "app/Console/Commands/DispatchAutoSpyCommand.php"
+          ],
+          "acceptance_criteria": [
+            "DispatchAutoSpyCommand runs every 15 minutes via scheduler",
+            "Only dispatches for competitors where next_scan_due <= now()",
+            "Skips competitors belonging to workspaces with < 50 credits",
+            "Jobs sent to dedicated 'spy' queue in Horizon",
+            "Job failure: marks competitor last_scanned_at, logs error, does NOT retry infinitely",
+            "Max 3 retries with exponential backoff"
+          ],
+          "technical_notes": "Use Horizon queue priorities: spy=high, content_generation=default, publishing=low. This ensures spy jobs don't starve when generation queue is full.",
+          "estimated_complexity": "m"
+        }
+      ]
+    },
+
+    {
+      "id": "P7",
+      "name": "Content Generation Pipeline",
+      "description": "8-step async content generation pipeline. Each step is a separate job. Article model tracks state. All AI calls go through AiGateway.",
+      "order": 7,
+      "status": "todo",
+      "tasks": [
+        {
+          "id": "P7-T1",
+          "title": "Build ContentPipelineOrchestrator and step jobs",
+          "description": "Orchestrates the 8-step pipeline. Each step dispatches the next step on success. Failed step marks article as failed and refunds credits.",
+          "status": "todo",
+          "priority": "critical",
+          "depends_on": ["P5-T1", "P4-T4", "P3-T3"],
+          "files_to_create": [
+            "app/Services/Content/ContentPipelineOrchestrator.php",
+            "app/Jobs/Content/GenerateOutlineJob.php",
+            "app/Jobs/Content/GenerateArticleBodyJob.php",
+            "app/Jobs/Content/SeoOptimizationJob.php",
+            "app/Jobs/Content/DuplicateCheckJob.php",
+            "app/Jobs/Content/GenerateImagesJob.php",
+            "app/Jobs/Content/FormatForWordPressJob.php"
+          ],
+          "acceptance_criteria": [
+            "ContentPipelineOrchestrator::start(suggestion, options) creates Article and dispatches GenerateOutlineJob",
+            "Each job advances article.generation_status on success",
+            "Each job dispatches next job in chain on success",
+            "Any job failure: article.generation_status = failed, credits refunded, user notified",
+            "Long articles (>2000 words) generated section-by-section in GenerateArticleBodyJob",
+            "Total tokens and cost_usd accumulated across all steps on article record"
+          ],
+          "technical_notes": "Chain: outline → body (chunked) → SEO → duplicate_check → images → format → ready. Each job is idempotent — safe to retry. Use article.generation_status to detect if step already completed (skip if so).",
+          "estimated_complexity": "xl"
+        },
+        {
+          "id": "P7-T2",
+          "title": "Implement outline generation step",
+          "description": "Generate H2/H3 article structure from suggestion brief. Uses AiGateway. Stores outline JSON on article before body generation.",
+          "status": "todo",
+          "priority": "critical",
+          "depends_on": ["P7-T1"],
+          "files_to_create": ["app/Services/Content/Steps/OutlineGeneratorService.php"],
+          "acceptance_criteria": [
+            "Generates outline with 4-8 H2 sections + 2-3 H3 per H2 for articles >1500 words",
+            "Outline stored as JSON on article.outline",
+            "Prompt includes: title, keywords, tone, word_count_target, competitor_angle",
+            "Token usage logged via AiGateway automatically",
+            "3 credits consumed"
+          ],
+          "technical_notes": "Prompt must instruct model to return JSON only: {sections: [{h2, h3s: [], word_count_target}]}. Parse JSON from response — if parsing fails, retry once with stricter prompt.",
+          "estimated_complexity": "m"
+        },
+        {
+          "id": "P7-T3",
+          "title": "Implement chunked article body generation",
+          "description": "Generate article body section by section. Each H2 section is a separate AiGateway call to avoid timeouts on long articles.",
+          "status": "todo",
+          "priority": "critical",
+          "depends_on": ["P7-T2"],
+          "files_to_create": ["app/Services/Content/Steps/ArticleBodyGeneratorService.php"],
+          "acceptance_criteria": [
+            "Generates each H2 section independently via separate AiGateway calls",
+            "Includes previous section summary in prompt for context continuity",
+            "Assembles all sections into final article.content",
+            "word_count updated on article after generation",
+            "All token usage per section accumulated on article.total_tokens_used",
+            "5 credits per 1000 words consumed"
+          ],
+          "technical_notes": "Section prompt includes: section title, target word count, previous section summary (last 200 words), article tone, focus keyword. This maintains coherence across chunks.",
+          "estimated_complexity": "l"
+        },
+        {
+          "id": "P7-T4",
+          "title": "Implement SEO optimization, duplicate check, and formatting steps",
+          "description": "Three final content steps: SEO meta generation, duplicate content check via Meilisearch, and WordPress Gutenberg block formatting.",
+          "status": "todo",
+          "priority": "critical",
+          "depends_on": ["P7-T3"],
+          "files_to_create": [
+            "app/Services/Content/Steps/SeoOptimizerService.php",
+            "app/Services/Content/Steps/DuplicateCheckerService.php",
+            "app/Services/Content/Steps/WordPressFormatterService.php"
+          ],
+          "acceptance_criteria": [
+            "SeoOptimizerService generates: meta_title (<=60 chars), meta_description (<=160 chars), slug, focus_keyword",
+            "DuplicateCheckerService searches Meilisearch index for similar published articles",
+            "Duplicate score > 85% blocks publishing, sets article.duplicate_check_passed = false",
+            "WordPressFormatterService converts markdown/HTML to Gutenberg blocks JSON",
+            "Supports both Gutenberg blocks and Classic editor HTML output (per site config)",
+            "2 credits consumed for SEO step, 1 for duplicate check"
+          ],
+          "technical_notes": "Meilisearch duplicate check: index all published articles by site. Search by article title + first paragraph. Similarity score = Meilisearch ranking score * 100.",
+          "estimated_complexity": "l"
+        },
+        {
+          "id": "P7-T5",
+          "title": "Build content suggestion generation from spy detections",
+          "description": "Service that turns SpyDetection records into ContentSuggestion cards. Called after every spy run that finds new detections.",
+          "status": "todo",
+          "priority": "critical",
+          "depends_on": ["P5-T1", "P3-T3"],
+          "files_to_create": [
+            "app/Services/Content/SuggestionGeneratorService.php",
+            "app/Jobs/Content/GenerateSuggestionJob.php"
+          ],
+          "acceptance_criteria": [
+            "SuggestionGeneratorService::fromDetection(detection) creates ContentSuggestion",
+            "Uses AiGateway to generate: suggested_title, content_angle, target_keywords, recommended_word_count",
+            "Opportunity score from SpyDetection copied to ContentSuggestion",
+            "Duplicate suggestion check: same site + same focus keyword within 7 days → skip",
+            "2 credits consumed per suggestion generated",
+            "Token usage logged"
+          ],
+          "technical_notes": "Prompt: 'Given this competitor article: {title}, {excerpt}. Suggest a better angle for {site_niche}. Return JSON: {title, angle, keywords[], word_count, tone}'. JSON-only response enforced.",
+          "estimated_complexity": "m"
+        }
+      ]
+    },
+
+    {
+      "id": "P8",
+      "name": "WordPress Publishing — REST API & Plugin Bridge",
+      "description": "WordPress publishing via REST API direct connection and via the ContentSpy Connect plugin. Plugin is a standalone PHP deliverable.",
+      "order": 8,
+      "status": "todo",
+      "tasks": [
+        {
+          "id": "P8-T1",
+          "title": "Build WordPressPublisher service",
+          "description": "Publishes articles to WordPress via REST API or plugin endpoint. Handles both connection types transparently.",
+          "status": "todo",
+          "priority": "critical",
+          "depends_on": ["P3-T3", "P4-T4"],
+          "files_to_create": [
+            "app/Services/Publishing/WordPressPublisher.php",
+            "app/Services/Publishing/WordPressRestClient.php",
+            "app/Services/Publishing/WordPressPluginClient.php"
+          ],
+          "acceptance_criteria": [
+            "WordPressPublisher::publish(article, site) auto-selects client based on site.connection_type",
+            "Creates WP post with: title, content, excerpt, status, categories, tags, slug, meta SEO fields",
+            "Uploads featured image to WP media library, sets as featured image",
+            "Sets Yoast SEO fields: _yoast_wpseo_title, _yoast_wpseo_metadesc, _yoast_wpseo_focuskw",
+            "Sets Rank Math fields: rank_math_title, rank_math_description, rank_math_focus_keyword",
+            "Updates article: wp_post_id, wp_post_url, wp_published_at, publish_status",
+            "1 credit consumed per publish"
+          ],
+          "technical_notes": "WordPressRestClient uses Application Password in Authorization header. WordPressPluginClient uses HMAC-signed requests to /wp-json/contentspy/v1/publish. Both implement WordPressClientInterface.",
+          "estimated_complexity": "l"
+        },
+        {
+          "id": "P8-T2",
+          "title": "Build ContentSpy Connect WordPress plugin — core",
+          "description": "The WordPress plugin that connects a WP installation to ContentSpy SaaS. Core: settings page, API key verification, HMAC authentication.",
+          "status": "todo",
+          "priority": "critical",
+          "depends_on": ["P8-T1"],
+          "files_to_create": [
+            "wordpress-plugin/contentspy-connect/contentspy-connect.php",
+            "wordpress-plugin/contentspy-connect/includes/class-contentspy-core.php",
+            "wordpress-plugin/contentspy-connect/includes/class-contentspy-auth.php",
+            "wordpress-plugin/contentspy-connect/includes/class-contentspy-settings.php",
+            "wordpress-plugin/contentspy-connect/admin/settings-page.php",
+            "wordpress-plugin/contentspy-connect/readme.txt"
+          ],
+          "acceptance_criteria": [
+            "Plugin activates without PHP errors on WordPress 5.8+ with PHP 8.0+",
+            "Settings page appears under ContentSpy → Settings in WP Admin",
+            "User pastes SaaS API key → plugin calls SaaS /api/plugin/verify → shows Connected/Error status",
+            "HMAC verification: plugin validates X-ContentSpy-Signature header on all requests",
+            "HMAC uses SHA-256 HMAC of request body with shared secret, compared via hash_equals()",
+            "All plugin options stored in wp_options with prefix contentspy_",
+            "Plugin creates custom DB table contentspy_logs on activation"
+          ],
+          "technical_notes": "HMAC comparison MUST use hash_equals() not strcmp() to prevent timing attacks. Plugin secret = SHA-256 random key generated on first activation, stored in wp_options encrypted. No composer — pure PHP.",
+          "estimated_complexity": "xl"
+        },
+        {
+          "id": "P8-T3",
+          "title": "Build WordPress plugin — custom REST endpoints",
+          "description": "All /wp-json/contentspy/v1/ endpoints: publish, status, posts, sync, delete. Each endpoint HMAC-verified.",
+          "status": "todo",
+          "priority": "critical",
+          "depends_on": ["P8-T2"],
+          "files_to_create": [
+            "wordpress-plugin/contentspy-connect/includes/class-contentspy-api.php",
+            "wordpress-plugin/contentspy-connect/includes/class-contentspy-publisher.php"
+          ],
+          "acceptance_criteria": [
+            "POST /wp-json/contentspy/v1/publish creates WP post with all fields, returns {post_id, post_url}",
+            "GET /wp-json/contentspy/v1/status returns site health JSON",
+            "GET /wp-json/contentspy/v1/posts returns paginated post list",
+            "POST /wp-json/contentspy/v1/sync triggers full post sync back to SaaS",
+            "DELETE /wp-json/contentspy/v1/posts/{id} moves post to trash",
+            "All endpoints reject requests without valid HMAC signature (401)",
+            "Rate limit: 60 requests/minute per endpoint (stored in transients)"
+          ],
+          "technical_notes": "Publisher class handles: post creation, category/tag lookup-or-create, media upload from URL (file_get_contents + wp_upload_bits), Yoast and RankMath meta via update_post_meta().",
+          "estimated_complexity": "xl"
+        },
+        {
+          "id": "P8-T4",
+          "title": "Build WordPress plugin — admin widget and auto-update",
+          "description": "WP admin dashboard widget showing pending ContentSpy articles. Plugin auto-update mechanism via SaaS API.",
+          "status": "todo",
+          "priority": "medium",
+          "depends_on": ["P8-T3"],
+          "files_to_create": [
+            "wordpress-plugin/contentspy-connect/includes/class-contentspy-widget.php",
+            "wordpress-plugin/contentspy-connect/includes/class-contentspy-updater.php",
+            "wordpress-plugin/contentspy-connect/admin/widget.php"
+          ],
+          "acceptance_criteria": [
+            "Dashboard widget shows pending article count and list with approve/reject buttons",
+            "Admin bar badge shows pending count",
+            "Plugin checks for updates via GET /api/plugin/version on admin_init",
+            "Update available notice shown with one-click update",
+            "SaaS serves plugin zip from R2 storage",
+            "Shortcode [contentspy_suggestions] renders pending suggestions widget"
+          ],
+          "technical_notes": "Auto-update uses WordPress plugin update hooks: pre_set_site_transient_update_plugins and plugins_api. Plugin zip served from R2 with signed URL (15min expiry).",
+          "estimated_complexity": "m"
+        },
+        {
+          "id": "P8-T5",
+          "title": "Build plugin distribution and SaaS plugin management endpoints",
+          "description": "SaaS-side endpoints for plugin: verify connection, serve plugin zip, handle sync webhooks from plugin. Plugin download from SaaS dashboard.",
+          "status": "todo",
+          "priority": "high",
+          "depends_on": ["P8-T2"],
+          "files_to_create": [
+            "app/Http/Controllers/Plugin/PluginController.php",
+            "app/Services/Plugin/PluginService.php"
+          ],
+          "acceptance_criteria": [
+            "GET /api/plugin/download returns signed R2 URL for plugin zip",
+            "POST /api/plugin/verify validates API key, returns {site_id, secret, connected: true}",
+            "GET /api/plugin/version returns {current_version, download_url, changelog}",
+            "POST /api/plugin/sync receives post list from WP, syncs to SaaS articles",
+            "Plugin API key generation: 32-char random hex, stored hashed in sites.plugin_api_key",
+            "Plugin zip built from wordpress-plugin/ directory and uploaded to R2 on deploy"
+          ],
+          "technical_notes": "Plugin API key stored as SHA-256 hash in DB, compared with hash_equals() on verify. Raw key shown to user ONCE at connection time. Build script: zip wordpress-plugin/ → upload to R2 as contentspy-connect-v{version}.zip.",
+          "estimated_complexity": "m"
+        },
+        {
+          "id": "P8-T6",
+          "title": "Build publishing queue with rate limiting and retry logic",
+          "description": "Publishing queue enforces max posts per day per site. Failed publishes retry 3 times with exponential backoff.",
+          "status": "todo",
+          "priority": "high",
+          "depends_on": ["P8-T1"],
+          "files_to_create": [
+            "app/Jobs/Publishing/PublishToWordPressJob.php",
+            "app/Services/Publishing/PublishingQueueService.php"
+          ],
+          "acceptance_criteria": [
+            "PublishingQueueService::queue(article) checks daily post count before queuing",
+            "Rejects queueing if site has reached max_posts_per_day limit",
+            "PublishToWordPressJob retries 3 times with 5min, 15min, 45min delays",
+            "After 3 failures: publish_status = failed, user notified, credits refunded",
+            "Daily post count tracked in Redis (key: publish_count:{site_id}:{date}, TTL 25h)"
+          ],
+          "technical_notes": "Use Redis for daily counter — atomic INCR. Key expires after 25h to auto-reset at midnight. Do not use DB for rate limit tracking — too slow.",
+          "estimated_complexity": "m"
+        }
+      ]
+    },
+
+    {
+      "id": "P9",
+      "name": "Social Media Publishing",
+      "description": "OAuth connections, content adapters, and publishing for Facebook, Instagram, TikTok, Pinterest. Video pipeline for Reels/TikTok.",
+      "order": 9,
+      "status": "todo",
+      "tasks": [
+        {
+          "id": "P9-T1",
+          "title": "Build OAuth connection flows for all 4 social platforms",
+          "description": "OAuth2 flow for Facebook/Instagram (Graph API), TikTok (Content API), Pinterest (API v5). Stores and refreshes tokens.",
+          "status": "todo",
+          "priority": "critical",
+          "depends_on": ["P3-T5", "P4-T3"],
+          "files_to_create": [
+            "app/Http/Controllers/Social/SocialAuthController.php",
+            "app/Services/Social/FacebookOAuthService.php",
+            "app/Services/Social/TikTokOAuthService.php",
+            "app/Services/Social/PinterestOAuthService.php",
+            "app/Services/Social/TokenRefreshService.php"
+          ],
+          "acceptance_criteria": [
+            "GET /api/social/{platform}/connect redirects to platform OAuth",
+            "GET /api/social/{platform}/callback stores tokens in social_accounts",
+            "Facebook flow returns Page list — user selects which page to connect",
+            "Instagram connected via linked Facebook Business account",
+            "TokenRefreshService::refreshAll() refreshes all near-expiry tokens (< 7 days remaining)",
+            "TokenRefreshService runs daily via scheduler"
+          ],
+          "technical_notes": "Facebook and Instagram share one OAuth app (same Graph API credentials). TikTok requires Content Posting API scope — app must be approved by TikTok (plan for approval delay). Pinterest OAuth: HTTPS callback required.",
+          "estimated_complexity": "l"
+        },
+        {
+          "id": "P9-T2",
+          "title": "Build content adapters for all 4 platforms",
+          "description": "Each platform adapter receives an Article and generates platform-native content: caption, hashtags, image specs, video specs.",
+          "status": "todo",
+          "priority": "critical",
+          "depends_on": ["P5-T1", "P9-T1"],
+          "files_to_create": [
+            "app/Services/Social/Adapters/FacebookAdapter.php",
+            "app/Services/Social/Adapters/InstagramAdapter.php",
+            "app/Services/Social/Adapters/TikTokAdapter.php",
+            "app/Services/Social/Adapters/PinterestAdapter.php",
+            "app/Services/Social/Contracts/SocialAdapterInterface.php"
+          ],
+          "acceptance_criteria": [
+            "All adapters implement SocialAdapterInterface::adapt(article) → SocialPostDTO",
+            "Facebook: generates 300-500 char post + image via ImageGenerationGateway",
+            "Instagram: generates caption (<=2200 chars) + hashtags + 1080x1080 image",
+            "TikTok: generates video script (3-5 points) + calls TtsService + queues FFmpeg assembly",
+            "Pinterest: generates vertical 1000x1500 image + title (<=100 chars) + description (<=500 chars)",
+            "All image/video costs logged to token_usage_logs"
+          ],
+          "technical_notes": "SocialPostDTO contains: platform, post_type, caption, hashtags, media_urls, video_url, scheduled_for. Adapters must NOT call publishing APIs — only prepare content. Publishing is separate job.",
+          "estimated_complexity": "xl"
+        },
+        {
+          "id": "P9-T3",
+          "title": "Build social publishing jobs for all 4 platforms",
+          "description": "Platform-specific publishing jobs that call Graph API, TikTok API, Pinterest API. Retry logic, rate limit enforcement, credit refund on failure.",
+          "status": "todo",
+          "priority": "critical",
+          "depends_on": ["P9-T2"],
+          "files_to_create": [
+            "app/Jobs/Social/PublishToFacebookJob.php",
+            "app/Jobs/Social/PublishToInstagramJob.php",
+            "app/Jobs/Social/PublishToTikTokJob.php",
+            "app/Jobs/Social/PublishToPinterestJob.php",
+            "app/Services/Social/Publishers/GraphApiPublisher.php",
+            "app/Services/Social/Publishers/TikTokPublisher.php",
+            "app/Services/Social/Publishers/PinterestPublisher.php"
+          ],
+          "acceptance_criteria": [
+            "Facebook: POST to Graph API /page/feed or /page/photos with correct payload",
+            "Instagram: two-step publish (create container → publish container)",
+            "TikTok: pre-upload video file → publish via Content Posting API",
+            "Pinterest: POST to /pins with image + title + description + link",
+            "All jobs: 3 retries with exponential backoff (5min, 15min, 45min)",
+            "After 3 failures: social_post.status = failed, credits refunded, webhook fired",
+            "Platform daily limits enforced via Redis counters before each publish"
+          ],
+          "technical_notes": "TikTok video upload is a two-step process: init upload → upload chunks → publish. Video must be H.264, max 4GB, 15-600s. Always validate video specs before uploading.",
+          "estimated_complexity": "xl"
+        },
+        {
+          "id": "P9-T4",
+          "title": "Build social media analytics fetcher",
+          "description": "Fetch post performance metrics from all 4 platforms and store in social_posts.metrics JSON.",
+          "status": "todo",
+          "priority": "medium",
+          "depends_on": ["P9-T3"],
+          "files_to_create": [
+            "app/Services/Social/Analytics/SocialAnalyticsFetcher.php",
+            "app/Jobs/Social/FetchSocialMetricsJob.php"
+          ],
+          "acceptance_criteria": [
+            "Fetches metrics for all published posts older than 24h",
+            "Facebook: likes, comments, shares, reach, impressions",
+            "Instagram: likes, comments, saves, reach, plays (reels)",
+            "TikTok: views, likes, comments, shares",
+            "Pinterest: impressions, saves, clicks, outbound_clicks",
+            "Metrics stored in social_posts.metrics JSON, metrics_updated_at updated",
+            "Job runs daily via scheduler"
+          ],
+          "technical_notes": "Metrics are best-effort — if platform API fails, log error and continue. Never fail article workflow due to metrics fetch error.",
+          "estimated_complexity": "m"
+        }
+      ]
+    },
+
+    {
+      "id": "P10",
+      "name": "API Layer — Controllers, Routes, Resources",
+      "description": "All REST API endpoints. Every controller is thin — delegates to services. All responses via API Resources. Rate limiting per plan.",
+      "order": 10,
+      "status": "todo",
+      "tasks": [
+        {
+          "id": "P10-T1",
+          "title": "Build workspace and site management API",
+          "description": "CRUD endpoints for workspaces and sites. Site connection verification endpoint.",
+          "status": "todo",
+          "priority": "critical",
+          "depends_on": ["P4-T3", "P8-T1"],
+          "files_to_create": [
+            "app/Http/Controllers/Api/WorkspaceController.php",
+            "app/Http/Controllers/Api/SiteController.php",
+            "app/Http/Resources/WorkspaceResource.php",
+            "app/Http/Resources/SiteResource.php"
+          ],
+          "acceptance_criteria": [
+            "GET /api/workspaces returns user's workspaces",
+            "POST /api/workspaces creates workspace (plan limits enforced)",
+            "CRUD /api/sites for site management",
+            "POST /api/sites/{id}/verify-connection tests WP connection, returns status",
+            "POST /api/sites/{id}/switch sets current workspace in session",
+            "All responses use API Resources (no raw model exposure)"
+          ],
+          "technical_notes": "SiteController::verifyConnection() calls WordPress REST API or plugin endpoint and returns detailed status including WP version, plugin version, available categories.",
+          "estimated_complexity": "m"
+        },
+        {
+          "id": "P10-T2",
+          "title": "Build competitor and spy management API",
+          "description": "CRUD for competitors. Trigger manual spy scans. View spy detections. Configure spy methods and auto-spy settings.",
+          "status": "todo",
+          "priority": "critical",
+          "depends_on": ["P6-T1", "P10-T1"],
+          "files_to_create": [
+            "app/Http/Controllers/Api/CompetitorController.php",
+            "app/Http/Controllers/Api/SpyDetectionController.php",
+            "app/Http/Resources/CompetitorResource.php",
+            "app/Http/Resources/SpyDetectionResource.php"
+          ],
+          "acceptance_criteria": [
+            "CRUD /api/competitors with site scoping",
+            "POST /api/competitors/{id}/scan triggers immediate spy scan for all active methods",
+            "GET /api/competitors/{id}/detections returns paginated detections",
+            "PATCH /api/competitors/{id}/auto-spy toggles auto_spy and updates thresholds",
+            "Plan limits enforced on competitor creation"
+          ],
+          "technical_notes": "Manual scan dispatches RunCompetitorSpyJob immediately (not scheduled). Credits reserved at API time, not job execution time.",
+          "estimated_complexity": "m"
+        },
+        {
+          "id": "P10-T3",
+          "title": "Build content suggestions and article management API",
+          "description": "Endpoints for suggestion management and article CRUD. Trigger generation. Approve/reject workflow.",
+          "status": "todo",
+          "priority": "critical",
+          "depends_on": ["P7-T1", "P10-T1"],
+          "files_to_create": [
+            "app/Http/Controllers/Api/ContentSuggestionController.php",
+            "app/Http/Controllers/Api/ArticleController.php",
+            "app/Http/Resources/ContentSuggestionResource.php",
+            "app/Http/Resources/ArticleResource.php"
+          ],
+          "acceptance_criteria": [
+            "GET /api/suggestions with filters: site_id, status, min_score",
+            "POST /api/suggestions/{id}/accept triggers GenerateSuggestionJob",
+            "POST /api/suggestions/{id}/reject with reason",
+            "POST /api/suggestions/bulk-action for bulk accept/reject/schedule",
+            "GET /api/articles with generation_status filter",
+            "POST /api/articles/{id}/approve sets review_status=approved, queues publish",
+            "POST /api/articles/{id}/publish immediately publishes to WordPress",
+            "GET /api/articles/{id}/token-usage returns token consumption breakdown"
+          ],
+          "technical_notes": "Article token-usage endpoint aggregates token_usage_logs for that article: grouped by model, total cost_usd, credits_consumed. Useful for user transparency.",
+          "estimated_complexity": "m"
+        },
+        {
+          "id": "P10-T4",
+          "title": "Build credits, billing, and Stripe webhook API",
+          "description": "Credit balance, transaction history, Stripe subscription management, credit pack purchases, Stripe webhook handler.",
+          "status": "todo",
+          "priority": "critical",
+          "depends_on": ["P4-T4"],
+          "files_to_create": [
+            "app/Http/Controllers/Api/BillingController.php",
+            "app/Http/Controllers/Webhook/StripeWebhookController.php",
+            "app/Services/Billing/StripeService.php"
+          ],
+          "acceptance_criteria": [
+            "GET /api/billing/balance returns {balance, reserved, available, plan}",
+            "GET /api/billing/transactions returns paginated credit transaction history",
+            "GET /api/billing/token-usage returns token consumption report with cost_usd breakdown by model",
+            "POST /api/billing/subscribe creates Stripe subscription",
+            "POST /api/billing/buy-credits creates one-time Stripe payment intent",
+            "POST /webhooks/stripe handles: invoice.paid (grant credits), customer.subscription.deleted (downgrade plan)",
+            "Stripe webhook verified via Stripe-Signature header"
+          ],
+          "technical_notes": "invoice.paid webhook grants monthly credits atomically via CreditService. Never grant credits based on frontend confirmation — only from Stripe webhook. Idempotency: check Stripe event ID before processing.",
+          "estimated_complexity": "l"
+        },
+        {
+          "id": "P10-T5",
+          "title": "Build notifications, webhooks, and settings API",
+          "description": "In-app notification endpoints, user webhook configuration, user preferences and workspace settings.",
+          "status": "todo",
+          "priority": "medium",
+          "depends_on": ["P4-T3"],
+          "files_to_create": [
+            "app/Http/Controllers/Api/NotificationController.php",
+            "app/Http/Controllers/Api/WebhookEndpointController.php",
+            "app/Http/Controllers/Api/SettingsController.php"
+          ],
+          "acceptance_criteria": [
+            "GET /api/notifications returns unread notifications",
+            "POST /api/notifications/mark-read marks notifications as read",
+            "CRUD /api/webhook-endpoints",
+            "POST /api/webhook-endpoints/{id}/test sends test payload to webhook URL",
+            "PATCH /api/settings/workspace updates workspace settings",
+            "PATCH /api/settings/site/{id}/workflow updates workflow configuration"
+          ],
+          "technical_notes": "Webhook test fires a test event with example payload. Webhook delivery via SendWebhookJob — async, not inline. Secret returned only on creation, never again.",
+          "estimated_complexity": "m"
+        }
+      ]
+    },
+
+    {
+      "id": "P11",
+      "name": "Workflow Engine & Automation",
+      "description": "Per-site configurable workflow. Conditional logic, templates, audit logging. The brain that connects spy → suggest → generate → publish → distribute.",
+      "order": 11,
+      "status": "todo",
+      "tasks": [
+        {
+          "id": "P11-T1",
+          "title": "Build WorkflowEngine with step handlers and conditional logic",
+          "description": "The workflow engine evaluates conditions and decides which steps to execute automatically vs which to pause for human review.",
+          "status": "todo",
+          "priority": "critical",
+          "depends_on": ["P7-T1", "P8-T1", "P9-T2"],
+          "files_to_create": [
+            "app/Services/Workflow/WorkflowEngine.php",
+            "app/Services/Workflow/WorkflowConditionEvaluator.php",
+            "app/Services/Workflow/WorkflowStepHandler.php",
+            "app/Services/Workflow/Templates/FullAutopilotTemplate.php",
+            "app/Services/Workflow/Templates/HumanInTheLoopTemplate.php",
+            "app/Services/Workflow/Templates/SpyOnlyTemplate.php",
+            "app/Services/Workflow/Templates/GenerateOnlyTemplate.php"
+          ],
+          "acceptance_criteria": [
+            "WorkflowEngine::run(site, trigger, detection) executes configured workflow",
+            "WorkflowConditionEvaluator evaluates: opportunity_score thresholds, keyword_difficulty, plan limits",
+            "Full Autopilot: detect → suggest → generate → publish → distribute (all auto)",
+            "Human in Loop: detect → suggest (auto) → generate (auto) → PAUSE for review → publish (manual)",
+            "Spy Only: detect → suggest (auto) → STOP",
+            "Every step logged to workflow_logs with input/output/credits_consumed",
+            "Full autopilot blocked on Starter plan"
+          ],
+          "technical_notes": "WorkflowEngine is event-driven: each completed step fires a WorkflowStepCompleted event. StepHandlers listen and decide next action. This decouples steps and makes testing easier.",
+          "estimated_complexity": "xl"
+        },
+        {
+          "id": "P11-T2",
+          "title": "Build notification dispatch system (in-app, email, Slack, webhooks)",
+          "description": "Unified notification system. Every important event fires the correct notification to the correct channels.",
+          "status": "todo",
+          "priority": "high",
+          "depends_on": ["P10-T5"],
+          "files_to_create": [
+            "app/Notifications/NewDetectionNotification.php",
+            "app/Notifications/ArticleReadyForReviewNotification.php",
+            "app/Notifications/ArticlePublishedNotification.php",
+            "app/Notifications/LowCreditsNotification.php",
+            "app/Notifications/SocialPostFailedNotification.php",
+            "app/Notifications/WordPressConnectionLostNotification.php",
+            "app/Jobs/Notifications/SendWebhookJob.php",
+            "app/Services/Notifications/SlackNotificationService.php"
+          ],
+          "acceptance_criteria": [
+            "All notifications fire via Laravel Notification system",
+            "In-app: stored in notifications table, pushed via Soketi/Echo",
+            "Email: sent via Resend driver with HTML templates",
+            "Slack: POST to user-configured webhook URL",
+            "Outgoing webhook: SendWebhookJob fires signed payload to all matching endpoints",
+            "LowCreditsNotification fires when workspace credits drop below user-configured threshold",
+            "User can configure per-notification-type: enabled channels (in-app, email, slack)"
+          ],
+          "technical_notes": "Use Laravel Notification channels: database, mail, broadcast (for real-time). Custom webhook channel implemented as Laravel Notification Channel.",
+          "estimated_complexity": "l"
+        }
+      ]
+    },
+
+    {
+      "id": "P12",
+      "name": "Frontend — React Application",
+      "description": "Full React 18 SPA with all dashboard views, spy management, content pipeline, publishing calendar, and analytics.",
+      "order": 12,
+      "status": "todo",
+      "tasks": [
+        {
+          "id": "P12-T1",
+          "title": "Initialize React app with routing, auth, and global state",
+          "description": "Vite + React 18 + TailwindCSS + shadcn/ui setup. Auth flow, workspace switching, protected routes, TanStack Query global config.",
+          "status": "todo",
+          "priority": "critical",
+          "depends_on": ["P10-T1"],
+          "files_to_create": [
+            "resources/js/app.jsx",
+            "resources/js/router.jsx",
+            "resources/js/stores/authStore.js",
+            "resources/js/stores/workspaceStore.js",
+            "resources/js/hooks/useAuth.js",
+            "resources/js/lib/apiClient.js"
+          ],
+          "acceptance_criteria": [
+            "Vite dev server starts without errors",
+            "Protected routes redirect to /login if not authenticated",
+            "Workspace switching updates all data without page reload",
+            "TanStack Query configured with staleTime, retry, and error handling",
+            "apiClient auto-attaches Authorization header to all requests",
+            "apiClient intercepts 401 and triggers logout"
+          ],
+          "technical_notes": "Use Zustand for auth/workspace state. TanStack Query for all server state. apiClient wraps fetch with base URL, auth header, JSON parsing, and error normalization.",
+          "estimated_complexity": "m"
+        },
+        {
+          "id": "P12-T2",
+          "title": "Build global dashboard and competitor activity feed",
+          "description": "Main dashboard with site overview cards, real-time competitor activity feed, credit balance widget, pending suggestions count.",
+          "status": "todo",
+          "priority": "critical",
+          "depends_on": ["P12-T1"],
+          "files_to_create": [
+            "resources/js/pages/Dashboard.jsx",
+            "resources/js/components/Dashboard/SiteOverviewCard.jsx",
+            "resources/js/components/Dashboard/ActivityFeed.jsx",
+            "resources/js/components/Dashboard/CreditWidget.jsx",
+            "resources/js/components/Dashboard/SuggestionsSummary.jsx"
+          ],
+          "acceptance_criteria": [
+            "Dashboard loads all site cards with connection status indicators",
+            "Activity feed shows real-time competitor detections via WebSocket (Soketi)",
+            "Credit widget shows balance, reserved, available with progress bar",
+            "Low credit alert shown when below threshold",
+            "Pending suggestions count shown per site"
+          ],
+          "technical_notes": "Real-time activity feed via Laravel Echo + Soketi. Subscribe to workspace.{id} channel. Broadcast SpyDetectionEvent when new detection arrives.",
+          "estimated_complexity": "l"
+        },
+        {
+          "id": "P12-T3",
+          "title": "Build spy management UI",
+          "description": "Per-site competitor management, spy method configuration, detection list with opportunity scores, auto-spy settings.",
+          "status": "todo",
+          "priority": "critical",
+          "depends_on": ["P12-T1"],
+          "files_to_create": [
+            "resources/js/pages/SpyDashboard.jsx",
+            "resources/js/components/Spy/CompetitorCard.jsx",
+            "resources/js/components/Spy/SpyMethodToggle.jsx",
+            "resources/js/components/Spy/DetectionList.jsx",
+            "resources/js/components/Spy/AutoSpySettings.jsx"
+          ],
+          "acceptance_criteria": [
+            "Add competitor with URL → system auto-detects RSS and sitemap URLs",
+            "Toggle each spy method on/off per competitor",
+            "Configure auto-spy interval and confidence thresholds with sliders",
+            "Detection list with score badges, method tags, and action buttons",
+            "Manual scan button triggers immediate spy run with loading state",
+            "Credit cost shown before confirming manual scan"
+          ],
+          "technical_notes": "Auto-detect RSS: try {domain}/feed, {domain}/rss, {domain}/rss.xml. Auto-detect sitemap: check robots.txt for Sitemap: directive. Show detected URLs to user for confirmation.",
+          "estimated_complexity": "l"
+        },
+        {
+          "id": "P12-T4",
+          "title": "Build content pipeline UI — suggestions and article editor",
+          "description": "Kanban-style content pipeline, suggestion cards, article generation progress, article review editor.",
+          "status": "todo",
+          "priority": "critical",
+          "depends_on": ["P12-T1"],
+          "files_to_create": [
+            "resources/js/pages/ContentPipeline.jsx",
+            "resources/js/components/Content/SuggestionCard.jsx",
+            "resources/js/components/Content/ArticleGenerator.jsx",
+            "resources/js/components/Content/ArticleEditor.jsx",
+            "resources/js/components/Content/GenerationProgress.jsx",
+            "resources/js/components/Content/TokenUsageBreakdown.jsx"
+          ],
+          "acceptance_criteria": [
+            "Kanban columns: Suggested → Generating → Review → Scheduled → Published",
+            "Suggestion card shows: title, score badge, competitor source, estimated traffic, keywords",
+            "Accept suggestion → shows AI model selector + credit cost estimate → confirm → generation starts",
+            "Generation progress shows current step with animated indicator",
+            "Article editor: rich text editor for review, SEO fields, featured image preview",
+            "Token usage breakdown shows: model used, tokens consumed, cost in USD and credits"
+          ],
+          "technical_notes": "Generation progress updates via WebSocket. Subscribe to article.{id} channel. Server broadcasts ArticlePipelineStepCompleted event after each step.",
+          "estimated_complexity": "xl"
+        },
+        {
+          "id": "P12-T5",
+          "title": "Build publishing calendar and social media management UI",
+          "description": "FullCalendar publishing calendar, social account connection flow, social post preview per platform.",
+          "status": "todo",
+          "priority": "high",
+          "depends_on": ["P12-T1"],
+          "files_to_create": [
+            "resources/js/pages/PublishingCalendar.jsx",
+            "resources/js/pages/SocialAccounts.jsx",
+            "resources/js/components/Social/PlatformConnectButton.jsx",
+            "resources/js/components/Social/SocialPostPreview.jsx"
+          ],
+          "acceptance_criteria": [
+            "FullCalendar shows all scheduled WP posts and social posts color-coded by platform",
+            "Drag-and-drop rescheduling updates scheduled_for via API",
+            "Social accounts page shows connected accounts with token expiry warning",
+            "OAuth connect button opens popup window for platform auth",
+            "Social post preview shows platform-native card (FB, IG, TikTok, Pinterest mockup)"
+          ],
+          "technical_notes": "OAuth popup: window.open() → postMessage() back to parent on callback. Prevents full page navigation during OAuth flow.",
+          "estimated_complexity": "l"
+        },
+        {
+          "id": "P12-T6",
+          "title": "Build analytics, billing, and admin dashboards",
+          "description": "Analytics dashboard with Recharts, billing/credit management UI, and admin panel for SaaS owner.",
+          "status": "todo",
+          "priority": "high",
+          "depends_on": ["P12-T1"],
+          "files_to_create": [
+            "resources/js/pages/Analytics.jsx",
+            "resources/js/pages/Billing.jsx",
+            "resources/js/pages/Admin/AdminDashboard.jsx",
+            "resources/js/components/Analytics/TokenCostChart.jsx",
+            "resources/js/components/Analytics/ContentPerformanceTable.jsx"
+          ],
+          "acceptance_criteria": [
+            "Credit consumption chart: daily bars, last 30 days, colored by action type",
+            "Token cost breakdown: pie chart by AI model, table with cost_usd per model",
+            "Billing page: current plan, usage vs limit, transaction history, upgrade buttons",
+            "Credit pack purchase flow: select pack → Stripe checkout → redirect back → balance updated",
+            "Admin dashboard (is_admin users only): MRR, total users, API cost vs credits sold, margin %",
+            "Admin token leaderboard: top 10 users by API cost this month"
+          ],
+          "technical_notes": "Admin dashboard accessible only to users with is_admin=true. Separate admin API routes with AdminMiddleware. Never expose other users' data in regular API.",
+          "estimated_complexity": "l"
+        }
+      ]
+    },
+
+    {
+      "id": "P13",
+      "name": "Background Jobs, Queues & Scheduling",
+      "description": "All Horizon queue configuration, scheduled commands, cleanup jobs, and monitoring setup.",
+      "order": 13,
+      "status": "todo",
+      "tasks": [
+        {
+          "id": "P13-T1",
+          "title": "Configure Laravel Horizon with queue priorities and worker pools",
+          "description": "Horizon configuration with multiple worker pools for different queue priorities. Spy jobs high priority, generation default, social low.",
+          "status": "todo",
+          "priority": "critical",
+          "depends_on": ["P6-T6", "P7-T1", "P9-T3"],
+          "files_to_modify": ["config/horizon.php"],
+          "acceptance_criteria": [
+            "spy queue: 5 workers, high priority",
+            "content queue: 3 workers, default priority, 300s timeout (long generation)",
+            "publishing queue: 2 workers, low priority",
+            "social queue: 2 workers, low priority",
+            "notifications queue: 1 worker",
+            "Horizon dashboard accessible at /horizon (admin only in production)",
+            "Failed jobs visible in Horizon with retry button"
+          ],
+          "technical_notes": "content queue timeout must be 300s minimum to handle chunked article generation. Default Laravel timeout is 60s — will kill mid-generation jobs.",
+          "estimated_complexity": "m"
+        },
+        {
+          "id": "P13-T2",
+          "title": "Implement all scheduled commands",
+          "description": "All cron-scheduled commands: auto-spy dispatch, token refresh, suggestion expiry, data cleanup, metrics fetch, credit expiry.",
+          "status": "todo",
+          "priority": "critical",
+          "depends_on": ["P6-T6", "P9-T4"],
+          "files_to_create": [
+            "app/Console/Commands/DispatchAutoSpyCommand.php",
+            "app/Console/Commands/RefreshSocialTokensCommand.php",
+            "app/Console/Commands/ExpireSuggestionsCommand.php",
+            "app/Console/Commands/FetchSocialMetricsCommand.php",
+            "app/Console/Commands/PurgeExpiredDataCommand.php",
+            "app/Console/Commands/ExpireCreditsCommand.php",
+            "app/Console/Commands/SendLowCreditAlertsCommand.php"
+          ],
+          "acceptance_criteria": [
+            "DispatchAutoSpyCommand: every 15 minutes",
+            "RefreshSocialTokensCommand: daily at 03:00",
+            "ExpireSuggestionsCommand: daily — archives suggestions older than 30 days",
+            "FetchSocialMetricsCommand: daily at 06:00",
+            "PurgeExpiredDataCommand: weekly — deletes workflow_logs > 90 days, MongoDB snapshots > 30 days",
+            "ExpireCreditsCommand: monthly — expires one-time pack credits after 90 days",
+            "SendLowCreditAlertsCommand: every 6h — checks all workspaces, fires notification if below threshold"
+          ],
+          "technical_notes": "PurgeExpiredDataCommand deletes MongoDB documents via TTL index (set on created_at field) — not via command. Command only handles MySQL cleanup.",
+          "estimated_complexity": "m"
+        }
+      ]
+    },
+
+    {
+      "id": "P14",
+      "name": "Testing & QA",
+      "description": "Unit tests, feature tests, integration tests. Every critical path covered. Focus on: credit integrity, auth, spy dedup, token tracking.",
+      "order": 14,
+      "status": "todo",
+      "tasks": [
+        {
+          "id": "P14-T1",
+          "title": "Write unit tests for CreditService and TokenPricingService",
+          "description": "Critical financial logic must have 100% test coverage. Race condition simulation tests required.",
+          "status": "todo",
+          "priority": "critical",
+          "depends_on": ["P4-T4", "P5-T1"],
+          "files_to_create": [
+            "tests/Unit/CreditServiceTest.php",
+            "tests/Unit/TokenPricingServiceTest.php"
+          ],
+          "acceptance_criteria": [
+            "CreditService: test reserve → confirm flow",
+            "CreditService: test reserve → refund flow",
+            "CreditService: test InsufficientCreditsException when balance < amount",
+            "CreditService: test concurrent reservations cannot overdraft (run 10 parallel reservations)",
+            "TokenPricingService: test cost calculation for all known models",
+            "TokenPricingService: test OpenRouter live pricing fallback",
+            "All tests pass: php artisan test --filter CreditServiceTest"
+          ],
+          "technical_notes": "Concurrent reservation test: use parallel HTTP requests or Laravel's concurrency testing helpers. Assert final balance = initial - (successful reservations only).",
+          "estimated_complexity": "l"
+        },
+        {
+          "id": "P14-T2",
+          "title": "Write feature tests for auth, site management, and spy engine",
+          "description": "End-to-end feature tests for registration flow, workspace isolation, site connection, and spy detection deduplication.",
+          "status": "todo",
+          "priority": "critical",
+          "depends_on": ["P4-T1", "P6-T1"],
+          "files_to_create": [
+            "tests/Feature/Auth/RegistrationTest.php",
+            "tests/Feature/Auth/WorkspaceIsolationTest.php",
+            "tests/Feature/Spy/SpyDeduplicationTest.php",
+            "tests/Feature/Spy/AutoSpySchedulerTest.php"
+          ],
+          "acceptance_criteria": [
+            "Registration: user + workspace + 500 credits created atomically",
+            "WorkspaceIsolation: user A cannot access user B's sites/articles/competitors",
+            "SpyDedup: same article detected by RSS + HTML scraping = one SpyDetection (not two)",
+            "AutoSpy: pauses when credits < 50, resumes when credits >= 50",
+            "All tests use RefreshDatabase trait"
+          ],
+          "technical_notes": "Workspace isolation tests are security tests. Run them with two separate authenticated users. Any 200 response to cross-workspace resource is a test failure.",
+          "estimated_complexity": "l"
+        },
+        {
+          "id": "P14-T3",
+          "title": "Write feature tests for content pipeline and publishing",
+          "description": "Test full article generation pipeline state machine. Test WordPress publishing via mocked WP API. Test credit consumption per pipeline step.",
+          "status": "todo",
+          "priority": "critical",
+          "depends_on": ["P7-T1", "P8-T1"],
+          "files_to_create": [
+            "tests/Feature/Content/ArticlePipelineTest.php",
+            "tests/Feature/Publishing/WordPressPublishingTest.php",
+            "tests/Feature/Credits/CreditConsumptionTest.php"
+          ],
+          "acceptance_criteria": [
+            "Pipeline: article advances through all 8 states correctly",
+            "Pipeline: failed step sets article.generation_status = failed and refunds credits",
+            "Pipeline: total_tokens_used and total_cost_usd accumulated correctly across steps",
+            "WordPress: mock WP API returns success → article.wp_post_id set, publish_status = published",
+            "WordPress: mock WP API returns 401 → retry, then failed, credits refunded",
+            "Credits: each action type consumes exactly the configured credit amount"
+          ],
+          "technical_notes": "Mock external APIs using Http::fake() for WordPress REST API and AI providers. Never call real APIs in tests.",
+          "estimated_complexity": "l"
+        },
+        {
+          "id": "P14-T4",
+          "title": "Write WordPress plugin unit tests",
+          "description": "PHPUnit tests for the WordPress plugin: HMAC verification, endpoint responses, publisher logic.",
+          "status": "todo",
+          "priority": "high",
+          "depends_on": ["P8-T3"],
+          "files_to_create": [
+            "wordpress-plugin/contentspy-connect/tests/test-auth.php",
+            "wordpress-plugin/contentspy-connect/tests/test-publisher.php",
+            "wordpress-plugin/contentspy-connect/tests/test-endpoints.php"
+          ],
+          "acceptance_criteria": [
+            "HMAC: valid signature accepted",
+            "HMAC: invalid signature rejected with 401",
+            "HMAC: timing attack safe (hash_equals used, not ==)",
+            "Publisher: post created with all fields correctly",
+            "Publisher: media uploaded from URL and set as featured image",
+            "Endpoints: all return correct HTTP status codes"
+          ],
+          "technical_notes": "Use WP_UnitTestCase from wordpress-develop test suite. Mock wp_remote_get/post for external HTTP calls. Run with: ./vendor/bin/phpunit (using WP test bootstrap).",
+          "estimated_complexity": "m"
+        }
+      ]
+    },
+
+    {
+      "id": "P15",
+      "name": "Performance, Security & Production Readiness",
+      "description": "Final hardening: query optimization, Redis caching, security audit, rate limiting, monitoring, and deployment configuration.",
+      "order": 15,
+      "status": "todo",
+      "tasks": [
+        {
+          "id": "P15-T1",
+          "title": "Security audit and hardening",
+          "description": "Review all endpoints for: missing workspace_id scoping, encrypted field exposure, HMAC implementation, rate limits, input validation.",
+          "status": "todo",
+          "priority": "critical",
+          "depends_on": ["P14-T2"],
+          "files_to_create": ["SECURITY_AUDIT.md"],
+          "acceptance_criteria": [
+            "All controllers verified: every query scoped by workspace_id",
+            "No encrypted fields (API keys, tokens, passwords) returned in any API response",
+            "All endpoints have rate limiting (throttle middleware)",
+            "Plugin HMAC uses hash_equals() confirmed in code review",
+            "Stripe webhook uses Stripe-Signature verification confirmed",
+            "No raw SQL queries (all via Eloquent with parameter binding)",
+            "SECURITY_AUDIT.md documents findings and fixes"
+          ],
+          "technical_notes": "Run php artisan route:list and manually verify each route has: auth middleware, workspace scope, rate limit. Create a checklist in SECURITY_AUDIT.md.",
+          "estimated_complexity": "l"
+        },
+        {
+          "id": "P15-T2",
+          "title": "Performance optimization and caching layer",
+          "description": "Add Redis caching for: OpenRouter model pricing, workspace credit balance, site status, suggestion counts. Optimize N+1 queries.",
+          "status": "todo",
+          "priority": "high",
+          "depends_on": ["P14-T3"],
+          "acceptance_criteria": [
+            "OpenRouter /models response cached in Redis with 1h TTL",
+            "Workspace credit balance cached with 5min TTL, invalidated on transaction",
+            "Dashboard queries use eager loading (no N+1)",
+            "token_usage_logs queries use date range index",
+            "php artisan telescope:clear run to verify no N+1 in feature flows",
+            "All list endpoints paginated (never return unbounded collections)"
+          ],
+          "technical_notes": "Use Laravel Cache::remember() for all expensive reads. Cache key convention: {entity}:{id}:{attribute}. Always tag caches for bulk invalidation: Cache::tags(['workspace:123'])->flush().",
+          "estimated_complexity": "l"
+        },
+        {
+          "id": "P15-T3",
+          "title": "Production deployment configuration",
+          "description": "Docker production build, environment configuration, Forge/Coolify setup, Sentry error tracking, monitoring.",
+          "status": "todo",
+          "priority": "critical",
+          "depends_on": ["P15-T1", "P15-T2"],
+          "files_to_create": [
+            "docker-compose.prod.yml",
+            "deploy.sh",
+            ".github/workflows/deploy.yml"
+          ],
+          "acceptance_criteria": [
+            "docker-compose.prod.yml with production-optimized services",
+            "php artisan optimize runs in deploy script",
+            "Sentry DSN configured — errors captured in production",
+            "Horizon Supervisor configured and auto-restarts",
+            "Soketi deployed and WebSocket connections verified",
+            "R2 CORS configured for frontend image access",
+            "SSL configured on all domains",
+            "Scheduler (cron) configured for php artisan schedule:run every minute"
+          ],
+          "technical_notes": "Deploy script: git pull → composer install --no-dev → php artisan migrate --force → php artisan optimize → php artisan horizon:terminate (Supervisor restarts it). Zero-downtime if using Forge atomic deployments.",
+          "estimated_complexity": "m"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "name": "ContentSpy AI",
+  "dockerComposeFile": "../docker/docker-compose.yml",
+  "service": "app",
+  "workspaceFolder": "/workspace",
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": { "version": "20" },
+    "ghcr.io/devcontainers/features/php:1": { "version": "8.3" }
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "bmewburn.vscode-intelephense-client",
+        "ms-azuretools.vscode-docker",
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
+        "bradlc.vscode-tailwindcss",
+        "github.copilot"
+      ],
+      "settings": {
+        "php.executablePath": "/usr/local/bin/php",
+        "editor.formatOnSave": true
+      }
+    }
+  },
+  "forwardPorts": [8000, 5173, 3001, 3002, 3306, 6379, 27017, 7700],
+  "postCreateCommand": "cd /workspace && composer install && npm install && cp .env.example .env && php artisan key:generate"
+}
